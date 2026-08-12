@@ -12,7 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://iochhkqjchsplbgwzvlw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvY2hoa3FqY2hzcGxiZ3d6dmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MDE4MzUsImV4cCI6MjEwMTk3NzgzNX0.TQQSN53_05CtRUcyGG6eE1cE3A-unxlTIhI-vlhP30A";
-const AUTH_EMAIL = "zuluclub.inc@gmail.com"; // <-- completar con el email del usuario compartido
+const AUTH_EMAIL = "acceso@tuasociacion.org"; // <-- completar con el email del usuario compartido
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Mapea nombres de campos del formulario (camelCase) <-> columnas de la tabla (snake_case)
@@ -168,7 +168,7 @@ const GlobalStyle = () => (
 );
 
 // Hook que reemplaza a window.storage: lee y escribe en Supabase
-function useCollection(table) {
+function useCollection(table, ready) {
   const [items, setItems] = useState([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -179,7 +179,7 @@ function useCollection(table) {
     setLoaded(true);
   };
 
-  useEffect(() => { reload(); }, [table]);
+  useEffect(() => { if (ready) reload(); }, [table, ready]);
 
   const add = async (record) => {
     const { error } = await supabase.from(table).insert(toDb(table, record));
@@ -625,10 +625,10 @@ export default function ERPCannabico() {
   const [authed, setAuthed] = useState(false);
   const [authLoaded, setAuthLoaded] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
-  const socios = useCollection("socios");
-  const cultivo = useCollection("cultivo");
-  const dispensacion = useCollection("dispensacion");
-  const finanzas = useCollection("finanzas");
+  const socios = useCollection("socios", authed);
+  const cultivo = useCollection("cultivo", authed);
+  const dispensacion = useCollection("dispensacion", authed);
+  const finanzas = useCollection("finanzas", authed);
 
   // Verifica si ya hay una sesión activa de Supabase Auth
   useEffect(() => {
