@@ -21,6 +21,7 @@ const FIELD_MAPS = {
     nombre: "nombre", dni: "dni", reprocannNumero: "reprocann_numero",
     reprocannVencimiento: "reprocann_vencimiento", fechaAlta: "fecha_alta",
     telefono: "telefono", cuotaAlDia: "cuota_al_dia", estado: "estado",
+    gramosCuota: "gramos_cuota",
   },
   cultivo: {
     lote: "lote", fechaSiembra: "fecha_siembra", cantidadPlantas: "cantidad_plantas",
@@ -210,9 +211,13 @@ function Field({ label, children }) {
   );
 }
 
-function AddForm({ fields, onSubmit, onCancel }) {
+function AddForm({ fields, onSubmit, onCancel, initialValues, submitLabel }) {
   const initial = {};
-  fields.forEach((f) => (initial[f.name] = f.default !== undefined ? f.default : ""));
+  fields.forEach((f) => {
+    initial[f.name] = initialValues && initialValues[f.name] !== undefined
+      ? initialValues[f.name]
+      : (f.default !== undefined ? f.default : "");
+  });
   const [values, setValues] = useState(initial);
   const set = (name, val) => setValues((v) => ({ ...v, [name]: val }));
 
@@ -239,7 +244,7 @@ function AddForm({ fields, onSubmit, onCancel }) {
         ))}
       </div>
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-        <button className="erp-btn erp-btn-primary" onClick={() => onSubmit(values)}>Guardar registro</button>
+        <button className="erp-btn erp-btn-primary" onClick={() => onSubmit(values)}>{submitLabel || "Guardar registro"}</button>
         <button className="erp-btn" onClick={onCancel}>Cancelar</button>
       </div>
     </div>
@@ -372,8 +377,31 @@ function Dashboard({ socios, cultivo, dispensacion, finanzas }) {
   );
 }
 
+// Configuración global (monto de cuota vigente, igual para todos los socios)
+function useSettings(ready) {
+  const [settings, setSettings] = useState({ montoCuota: 0 });
+  const [loaded, setLoaded] = useState(false);
+
+  const reload = async () => {
+    const { data, error } = await supabase.from("configuracion").select("*").eq("id", 1).maybeSingle();
+    if (!error && data) setSettings({ montoCuota: data.monto_cuota || 0 });
+    setLoaded(true);
+  };
+
+  useEffect(() => { if (ready) reload(); }, [ready]);
+
+  const updateMontoCuota = async (value) => {
+    const { error } = await supabase.from("configuracion").upsert({ id: 1, monto_cuota: value });
+    if (!error) setSettings({ montoCuota: value });
+  };
+
+  return { settings, loaded, updateMontoCuota };
+}
+
 function SociosView({ col }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const DIAS_VENCIMIENTO_SOCIOS = 60;
   const fields = [
     { name: "nombre", label: "Nombre completo" },
     { name: "dni", label: "DNI" },
@@ -381,18 +409,68 @@ function SociosView({ col }) {
     { name: "reprocannVencimiento", label: "Vto. REPROCANN", type: "date" },
     { name: "fechaAlta", label: "Fecha de alta", type: "date", default: TODAY() },
     { name: "telefono", label: "Teléfono" },
+    { name: "gramosCuota", label: "Gramos por cuota (mensual)", type: "number", default: 0 },
     { name: "cuotaAlDia", label: "Cuota al día", type: "checkbox", default: true },
     { name: "estado", label: "Estado", type: "select", options: ["Activo", "Inactivo"], default: "Activo" },
   ];
+
+  const proximosVencer = useMemo(() => {
+    return col.items
+      .filter((s) => s.estado === "Activo" && s.reprocannVencimiento)
+      .map((s) => ({ ...s, dias: daysUntil(s.reprocannVencimiento) }))
+      .filter((s) => s.dias !== null && s.dias <= DIAS_VENCIMIENTO_SOCIOS)
+      .sort((a, b) => a.dias - b.dias);
+  }, [col.items]);
+
+  const editingSocio = editingId ? col.items.find((s) => s.id === editingId) : null;
+
   return (
     <>
-      <SectionHeader title="Socios" folio={`Libro I · ${col.items.length} registrados`} onAdd={() => setShowForm(true)} addLabel="+ Nuevo socio" />
-      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
+      <SectionHeader title="Socios" folio={`Libro I · ${col.items.length} registrados`} onAdd={() => { setEditingId(null); setShowForm(true); }} addLabel="+ Nuevo socio" />
+
+      {proximosVencer.length > 0 && (
+        <div className="erp-card" style={{ marginBottom: 20 }}>
+          <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>REPROCANN por vencer (próximos {DIAS_VENCIMIENTO_SOCIOS} días)</p>
+          <div className="erp-table-wrap">
+            <table className="erp-table">
+              <thead><tr><th>Socio</th><th>Vence</th><th>Días</th></tr></thead>
+              <tbody>
+                {proximosVencer.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.nombre}</td>
+                    <td>{fmtDate(s.reprocannVencimiento)}</td>
+                    <td>
+                      <span className={`erp-badge ${s.dias < 0 ? "erp-badge-rust" : "erp-badge-soil"}`}>
+                        {s.dias < 0 ? `Vencido hace ${Math.abs(s.dias)}d` : `${s.dias} días`}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {showForm && (
+        <AddForm
+          fields={fields}
+          initialValues={editingSocio || undefined}
+          submitLabel={editingSocio ? "Guardar cambios" : "Guardar registro"}
+          onCancel={() => { setShowForm(false); setEditingId(null); }}
+          onSubmit={(v) => {
+            if (editingSocio) col.update(editingSocio.id, v);
+            else col.add(v);
+            setShowForm(false);
+            setEditingId(null);
+          }}
+        />
+      )}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay socios cargados.</p> : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Cuota</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Grs. cuota</th><th>Cuota</th><th>Estado</th><th></th></tr></thead>
             <tbody>
               {col.items.map((s, i) => (
                 <tr key={s.id}>
@@ -401,9 +479,13 @@ function SociosView({ col }) {
                   <td className="erp-mono">{s.dni}</td>
                   <td className="erp-mono">{s.reprocannNumero || "—"}</td>
                   <td>{fmtDate(s.reprocannVencimiento)}</td>
+                  <td className="erp-mono">{fmtG(s.gramosCuota)}</td>
                   <td><button className={`erp-badge ${s.cuotaAlDia ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => col.update(s.id, { cuotaAlDia: !s.cuotaAlDia })} style={{ border: "none", cursor: "pointer" }}>{s.cuotaAlDia ? "Al día" : "Atrasada"}</button></td>
                   <td><span className={`erp-badge ${s.estado === "Activo" ? "erp-badge-moss" : "erp-badge-soil"}`}>{s.estado}</span></td>
-                  <td><button className="erp-btn erp-btn-danger" onClick={() => col.remove(s.id)}>Borrar</button></td>
+                  <td style={{ display: "flex", gap: 6 }}>
+                    <button className="erp-btn" onClick={() => { setEditingId(s.id); setShowForm(true); }}>Editar</button>
+                    <button className="erp-btn erp-btn-danger" onClick={() => col.remove(s.id)}>Borrar</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -462,7 +544,7 @@ function CultivoView({ col }) {
   );
 }
 
-function DispensacionView({ col, socios }) {
+function DispensacionView({ col, socios, finanzas, settings }) {
   const [showForm, setShowForm] = useState(false);
   const fields = [
     { name: "socioNombre", label: "Socio", type: "select", options: socios.items.length ? socios.items.map((s) => s.nombre) : ["Sin socios cargados"] },
@@ -470,11 +552,26 @@ function DispensacionView({ col, socios }) {
     { name: "tipo", label: "Tipo de producto", type: "select", options: ["Flor", "Aceite", "Extracto", "Semilla", "Otro"] },
     { name: "cantidadGramos", label: "Cantidad (g)", type: "number", default: 0 },
     { name: "tipoCobro", label: "Concepto", type: "select", options: ["Cuota mensual", "Excedente"], default: "Cuota mensual" },
-    { name: "monto", label: "Monto (ARS)", type: "number", default: 0 },
+    { name: "monto", label: "Monto (ARS)", type: "number", default: settings.montoCuota || 0 },
     { name: "pagado", label: "Pagado", type: "checkbox", default: true },
     { name: "observaciones", label: "Observaciones" },
   ];
   const totalPendiente = col.items.filter((d) => !d.pagado).reduce((a, d) => a + (Number(d.monto) || 0), 0);
+
+  const handleSubmit = (v) => {
+    col.add(v);
+    if (Number(v.monto) > 0) {
+      finanzas.add({
+        fecha: v.fecha,
+        tipo: "Ingreso",
+        categoria: v.tipoCobro || "Cuota mensual",
+        concepto: `${v.tipoCobro || "Cuota"} · ${v.socioNombre}`,
+        monto: v.monto,
+      });
+    }
+    setShowForm(false);
+  };
+
   return (
     <>
       <SectionHeader
@@ -483,7 +580,7 @@ function DispensacionView({ col, socios }) {
         onAdd={() => setShowForm(true)}
         addLabel="+ Nueva entrega"
       />
-      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
+      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={handleSubmit} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay entregas registradas.</p> : (
           <div className="erp-table-wrap">
@@ -517,8 +614,10 @@ function DispensacionView({ col, socios }) {
   );
 }
 
-function FinanzasView({ col }) {
+function FinanzasView({ col, settings, updateMontoCuota }) {
   const [showForm, setShowForm] = useState(false);
+  const [cuotaInput, setCuotaInput] = useState(settings.montoCuota || 0);
+  const [savedMsg, setSavedMsg] = useState(false);
   const fields = [
     { name: "fecha", label: "Fecha", type: "date", default: TODAY() },
     { name: "tipo", label: "Tipo", type: "select", options: ["Ingreso", "Egreso"] },
@@ -527,9 +626,29 @@ function FinanzasView({ col }) {
     { name: "monto", label: "Monto (ARS)", type: "number", default: 0 },
   ];
   const balance = col.items.reduce((a, f) => a + (f.tipo === "Ingreso" ? Number(f.monto) || 0 : -(Number(f.monto) || 0)), 0);
+
+  const saveCuota = async () => {
+    await updateMontoCuota(Number(cuotaInput));
+    setSavedMsg(true);
+    setTimeout(() => setSavedMsg(false), 2000);
+  };
+
   return (
     <>
       <SectionHeader title="Finanzas" folio={`Libro IV · Balance ${fmtMoney(balance)}`} onAdd={() => setShowForm(true)} addLabel="+ Nuevo movimiento" />
+      <div className="erp-card" style={{ marginBottom: 20 }}>
+        <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Cuota mensual vigente</p>
+        <p style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>
+          Este es el monto que se sugiere automáticamente al cargar una entrega por "Cuota mensual" en Dispensación.
+        </p>
+        <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
+          <Field label="Monto (ARS)">
+            <input className="erp-input" style={{ width: 160 }} type="number" value={cuotaInput} onChange={(e) => setCuotaInput(Number(e.target.value))} />
+          </Field>
+          <button className="erp-btn erp-btn-primary" onClick={saveCuota}>Guardar</button>
+          {savedMsg && <span style={{ fontSize: 12, color: "var(--moss-dark)" }}>Guardado ✓</span>}
+        </div>
+      </div>
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay movimientos cargados.</p> : (
@@ -646,6 +765,7 @@ export default function ERPCannabico() {
   const cultivo = useCollection("cultivo", authed);
   const dispensacion = useCollection("dispensacion", authed);
   const finanzas = useCollection("finanzas", authed);
+  const settingsHook = useSettings(authed);
 
   // Verifica si ya hay una sesión activa de Supabase Auth
   useEffect(() => {
@@ -725,8 +845,8 @@ export default function ERPCannabico() {
             {visibleSection === "dashboard" && <Dashboard socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
             {visibleSection === "socios" && <SociosView col={socios} />}
             {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
-            {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} />}
-            {visibleSection === "finanzas" && <FinanzasView col={finanzas} />}
+            {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
+            {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} />}
             {visibleSection === "reportes" && <ReportesView socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
           </>
         )}
