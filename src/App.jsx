@@ -1,10 +1,10 @@
 // =====================================================
-// src/App.jsx — versión Supabase para deploy externo
+// src/App.jsx — versión Supabase con login compartido
 // =====================================================
-// 1. Completá SUPABASE_URL y SUPABASE_ANON_KEY abajo con
-//    los datos de Project Settings → API en tu proyecto Supabase.
-// 2. Instalá la dependencia: npm install @supabase/supabase-js
-// 3. Este archivo reemplaza src/App.jsx en tu proyecto Vite.
+// 1. Completá SUPABASE_URL y SUPABASE_ANON_KEY con tus datos.
+// 2. Completá AUTH_EMAIL con el mismo email que uses para crear
+//    el usuario compartido en Supabase (paso a paso aparte).
+// 3. npm install @supabase/supabase-js
 // =====================================================
 
 import { useState, useEffect, useMemo } from "react";
@@ -12,6 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://iochhkqjchsplbgwzvlw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvY2hoa3FqY2hzcGxiZ3d6dmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MDE4MzUsImV4cCI6MjEwMTk3NzgzNX0.TQQSN53_05CtRUcyGG6eE1cE3A-unxlTIhI-vlhP30A";
+const AUTH_EMAIL = "zuluclub.inc@gmail.com"; // <-- completar con el email del usuario compartido
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Mapea nombres de campos del formulario (camelCase) <-> columnas de la tabla (snake_case)
@@ -98,9 +99,9 @@ const GlobalStyle = () => (
     .erp-nav-item:hover { background: rgba(239,239,228,0.06); }
     .erp-nav-item.active { background: rgba(239,239,228,0.1); border-left-color: #C7CFB9; color: #fff; font-weight: 500; }
     .erp-nav-num { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #94A184; width: 16px; }
-    .erp-main { flex: 1; padding: 32px 40px; max-width: 1120px; }
+    .erp-main { flex: 1; padding: 32px 40px; max-width: 1120px; min-width: 0; }
     .erp-h1 { font-size: 24px; font-weight: 500; margin: 0; }
-    .erp-header-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+    .erp-header-row { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 24px; border-bottom: 1px solid var(--border); padding-bottom: 16px; flex-wrap: wrap; gap: 10px; }
     .erp-folio { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--ink-faint); }
     .erp-card { background: var(--surface); border: 1px solid var(--border); border-radius: 4px; padding: 16px 18px; }
     .erp-metric-label { font-size: 12px; color: var(--ink-soft); text-transform: uppercase; letter-spacing: 0.04em; margin: 0 0 6px; }
@@ -112,9 +113,10 @@ const GlobalStyle = () => (
     .erp-btn-danger { color: var(--rust); border-color: var(--rust-light); background: var(--rust-light); }
     .erp-input, .erp-select { font-family: 'IBM Plex Sans', sans-serif; font-size: 13px; padding: 7px 9px; border-radius: 3px; border: 1px solid var(--border-strong); background: var(--surface); color: var(--ink); width: 100%; }
     .erp-field-label { font-size: 11px; color: var(--ink-soft); margin-bottom: 4px; display: block; }
+    .erp-table-wrap { overflow-x: auto; }
     .erp-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-    .erp-table th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-soft); padding: 8px 10px; border-bottom: 1px solid var(--border-strong); }
-    .erp-table td { padding: 10px 10px; border-bottom: 1px dashed var(--border); }
+    .erp-table th { text-align: left; font-weight: 500; font-size: 11px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-soft); padding: 8px 10px; border-bottom: 1px solid var(--border-strong); white-space: nowrap; }
+    .erp-table td { padding: 10px 10px; border-bottom: 1px dashed var(--border); white-space: nowrap; }
     .erp-table tr:last-child td { border-bottom: none; }
     .erp-badge { font-size: 11px; padding: 2px 8px; border-radius: 20px; font-weight: 500; display: inline-block; }
     .erp-badge-moss { background: var(--moss-light); color: var(--moss-dark); }
@@ -123,8 +125,8 @@ const GlobalStyle = () => (
     .erp-badge-slate { background: var(--slate-light); color: var(--slate); }
     .erp-form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; }
     .erp-empty { color: var(--ink-faint); font-size: 13px; padding: 24px 0; text-align: center; }
-    .erp-gate { min-height: 100vh; width: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg); }
-    .erp-gate-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 32px; width: 380px; }
+    .erp-gate { min-height: 100vh; width: 100%; display: flex; align-items: center; justify-content: center; background: var(--bg); padding: 16px; }
+    .erp-gate-card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 32px; width: 380px; max-width: 100%; box-sizing: border-box; }
     .erp-role-btn { width: 100%; text-align: left; padding: 14px 16px; margin-top: 10px; border-radius: 4px; border: 1px solid var(--border-strong); background: var(--surface); cursor: pointer; }
     .erp-role-btn:hover { background: var(--moss-light); border-color: var(--moss); }
     .erp-role-name { font-weight: 500; font-size: 14px; }
@@ -135,8 +137,30 @@ const GlobalStyle = () => (
     .erp-alert-warning { background: var(--soil-light); color: var(--soil); }
     .erp-user-chip { font-size: 12px; color: #C7CFB9; padding: 8px 20px 0; margin-top: auto; }
     .erp-user-chip button { background: none; border: none; color: #C7CFB9; text-decoration: underline; cursor: pointer; font-size: 11px; padding: 0; margin-top: 4px; }
+    .erp-error { color: var(--rust); font-size: 12px; margin-top: 8px; }
+    .erp-menu-toggle { display: none; }
+    .erp-overlay { display: none; }
+    @media (max-width: 768px) {
+      .erp-root { display: block; }
+      .erp-menu-toggle {
+        display: flex; align-items: center; justify-content: center;
+        position: fixed; top: 14px; left: 14px; z-index: 40;
+        width: 40px; height: 40px; border-radius: 4px; border: 1px solid var(--border-strong);
+        background: var(--surface); font-size: 18px; cursor: pointer;
+      }
+      .erp-sidebar {
+        position: fixed; top: 0; left: 0; height: 100vh; width: 240px; z-index: 50;
+        transform: translateX(-100%); transition: transform 0.2s ease;
+      }
+      .erp-sidebar.open { transform: translateX(0); }
+      .erp-overlay.open {
+        display: block; position: fixed; inset: 0; background: rgba(0,0,0,0.4); z-index: 45;
+      }
+      .erp-main { padding: 64px 16px 32px; max-width: 100%; }
+      .erp-header-row { align-items: flex-start; }
+    }
     @media print {
-      .erp-sidebar, .erp-header-row .erp-btn, .no-print { display: none !important; }
+      .erp-sidebar, .erp-header-row .erp-btn, .erp-menu-toggle, .no-print { display: none !important; }
       .erp-main { padding: 0; max-width: 100%; }
       body, .erp-root { background: #fff; }
     }
@@ -233,13 +257,50 @@ function SectionHeader({ title, folio, onAdd, addLabel }) {
   );
 }
 
+// Pantalla de login compartido — usa un único usuario de Supabase Auth
+function LoginGate({ onSuccess }) {
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setError("");
+    setLoading(true);
+    const { error: err } = await supabase.auth.signInWithPassword({ email: AUTH_EMAIL, password });
+    setLoading(false);
+    if (err) { setError("Clave incorrecta. Probá de nuevo."); return; }
+    onSuccess();
+  };
+
+  return (
+    <div className="erp-gate">
+      <div className="erp-gate-card">
+        <p className="erp-brand-title erp-serif" style={{ fontSize: 20, marginBottom: 4 }}>Registro Asociativo</p>
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 14 }}>
+          Ingresá la clave de acceso de la asociación.
+        </p>
+        <form onSubmit={submit}>
+          <Field label="Clave de acceso">
+            <input className="erp-input" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoFocus />
+          </Field>
+          {error && <p className="erp-error">{error}</p>}
+          <button className="erp-btn erp-btn-primary" type="submit" style={{ width: "100%", marginTop: 14 }} disabled={loading}>
+            {loading ? "Ingresando…" : "Ingresar"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function RoleGate({ onSelect }) {
   return (
     <div className="erp-gate">
       <div className="erp-gate-card">
         <p className="erp-brand-title erp-serif" style={{ fontSize: 20, marginBottom: 4 }}>Registro Asociativo</p>
         <p style={{ fontSize: 13, color: "var(--ink-soft)", marginBottom: 4 }}>
-          Elegí con qué rol vas a trabajar. Esto organiza qué secciones ves — no es una contraseña real, así que para restringir acceso de verdad conviene sumar autenticación de Supabase más adelante.
+          Elegí con qué rol vas a trabajar. Esto organiza qué secciones ves.
         </p>
         {Object.entries(ROLES).map(([key, r]) => (
           <button key={key} className="erp-role-btn" onClick={() => onSelect(key)}>
@@ -328,6 +389,7 @@ function SociosView({ col }) {
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay socios cargados.</p> : (
+          <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Cuota</th><th>Estado</th><th></th></tr></thead>
             <tbody>
@@ -345,6 +407,7 @@ function SociosView({ col }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
@@ -367,6 +430,7 @@ function CultivoView({ col }) {
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay lotes cargados.</p> : (
+          <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr><th>N°</th><th>Lote</th><th>Siembra</th><th>Plantas</th><th>Etapa</th><th>Cosecha est.</th><th>Cosechado</th><th></th></tr></thead>
             <tbody>
@@ -390,6 +454,7 @@ function CultivoView({ col }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
@@ -411,6 +476,7 @@ function DispensacionView({ col, socios }) {
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay entregas registradas.</p> : (
+          <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr><th>N°</th><th>Fecha</th><th>Socio</th><th>Tipo</th><th>Cantidad</th><th>Obs.</th><th></th></tr></thead>
             <tbody>
@@ -427,6 +493,7 @@ function DispensacionView({ col, socios }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
@@ -449,6 +516,7 @@ function FinanzasView({ col }) {
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay movimientos cargados.</p> : (
+          <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr><th>N°</th><th>Fecha</th><th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Monto</th><th></th></tr></thead>
             <tbody>
@@ -465,6 +533,7 @@ function FinanzasView({ col }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
@@ -528,6 +597,7 @@ function ReportesView({ socios, cultivo, dispensacion, finanzas }) {
         <p className="erp-serif" style={{ fontSize: 16, marginBottom: 2 }}>{config.label}</p>
         <p className="erp-folio" style={{ marginBottom: 14 }}>Generado el {fmtDate(TODAY())} · {rows.length} registros</p>
         {rows.length === 0 ? <p className="erp-empty">No hay registros para el rango seleccionado.</p> : (
+          <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr>{config.cols.map((c) => <th key={c.key}>{c.label}</th>)}</tr></thead>
             <tbody>
@@ -542,6 +612,7 @@ function ReportesView({ socios, cultivo, dispensacion, finanzas }) {
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
     </>
@@ -551,10 +622,25 @@ function ReportesView({ socios, cultivo, dispensacion, finanzas }) {
 export default function ERPCannabico() {
   const [section, setSection] = useState("dashboard");
   const [role, setRole] = useState(null);
+  const [authed, setAuthed] = useState(false);
+  const [authLoaded, setAuthLoaded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const socios = useCollection("socios");
   const cultivo = useCollection("cultivo");
   const dispensacion = useCollection("dispensacion");
   const finanzas = useCollection("finanzas");
+
+  // Verifica si ya hay una sesión activa de Supabase Auth
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setAuthed(!!data.session);
+      setAuthLoaded(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setAuthed(!!session);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
 
   // El rol acá se guarda solo en el navegador de cada persona (no hace falta compartirlo)
   useEffect(() => {
@@ -571,6 +657,10 @@ export default function ERPCannabico() {
     setRole(null);
     localStorage.removeItem("erp-role");
   };
+  const logout = async () => {
+    await supabase.auth.signOut();
+    changeRole();
+  };
 
   const allNav = [
     { key: "dashboard", label: "Panel", num: "00" },
@@ -583,6 +673,8 @@ export default function ERPCannabico() {
 
   const allLoaded = socios.loaded && cultivo.loaded && dispensacion.loaded && finanzas.loaded;
 
+  if (!authLoaded) return <div className="erp-root"><GlobalStyle /></div>;
+  if (!authed) return <div className="erp-root"><GlobalStyle /><LoginGate onSuccess={() => setAuthed(true)} /></div>;
   if (!role) return <div className="erp-root"><GlobalStyle /><RoleGate onSelect={chooseRole} /></div>;
 
   const nav = allNav.filter((n) => ROLES[role].sections.includes(n.key));
@@ -591,19 +683,23 @@ export default function ERPCannabico() {
   return (
     <div className="erp-root">
       <GlobalStyle />
-      <aside className="erp-sidebar">
+      <button className="erp-menu-toggle" onClick={() => setMenuOpen(true)} aria-label="Abrir menú">☰</button>
+      <div className={`erp-overlay ${menuOpen ? "open" : ""}`} onClick={() => setMenuOpen(false)} />
+      <aside className={`erp-sidebar ${menuOpen ? "open" : ""}`}>
         <div className="erp-brand">
           <p className="erp-brand-title erp-serif">Registro Asociativo</p>
           <p className="erp-brand-sub">GESTIÓN ASOCIACIÓN CANNÁBICA</p>
         </div>
         {nav.map((n) => (
-          <button key={n.key} className={`erp-nav-item ${visibleSection === n.key ? "active" : ""}`} onClick={() => setSection(n.key)}>
+          <button key={n.key} className={`erp-nav-item ${visibleSection === n.key ? "active" : ""}`} onClick={() => { setSection(n.key); setMenuOpen(false); }}>
             <span className="erp-nav-num">{n.num}</span><span>{n.label}</span>
           </button>
         ))}
         <div className="erp-user-chip">
           Rol: {ROLES[role].label}<br />
           <button onClick={changeRole}>Cambiar rol</button>
+          {" · "}
+          <button onClick={logout}>Cerrar sesión</button>
         </div>
       </aside>
       <main className="erp-main">
