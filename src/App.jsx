@@ -32,10 +32,11 @@ const FIELD_MAPS = {
     socioNombre: "socio_nombre", fecha: "fecha", tipo: "tipo",
     cantidadGramos: "cantidad_gramos", observaciones: "observaciones",
     monto: "monto", pagado: "pagado", tipoCobro: "tipo_cobro",
+    metodoPago: "metodo_pago", mesesCuota: "meses_cuota",
   },
   finanzas: {
     fecha: "fecha", tipo: "tipo", categoria: "categoria",
-    concepto: "concepto", monto: "monto",
+    concepto: "concepto", monto: "monto", metodoPago: "metodo_pago",
   },
 };
 
@@ -68,6 +69,22 @@ const daysUntil = (d) => {
   const now = new Date(TODAY() + "T00:00:00");
   return Math.round((target - now) / 86400000);
 };
+
+// Cálculo de cuotas adeudadas: meses transcurridos desde el alta vs. meses pagados en Dispensación
+function mesesTranscurridos(fechaAlta) {
+  if (!fechaAlta) return 0;
+  const [ay, am] = fechaAlta.split("-").map(Number);
+  const now = new Date();
+  return (now.getFullYear() - ay) * 12 + (now.getMonth() + 1 - am) + 1;
+}
+function mesesPagados(socioNombre, dispensacionItems) {
+  return dispensacionItems
+    .filter((d) => d.socioNombre === socioNombre && d.tipoCobro === "Cuota mensual" && d.pagado)
+    .reduce((a, d) => a + (Number(d.mesesCuota) || 1), 0);
+}
+function mesesAdeudados(socio, dispensacionItems) {
+  return Math.max(0, mesesTranscurridos(socio.fechaAlta) - mesesPagados(socio.nombre, dispensacionItems));
+}
 
 const ROLES = {
   admin: { label: "Administración", sections: ["dashboard", "socios", "cultivo", "dispensacion", "finanzas", "reportes"] },
@@ -367,7 +384,7 @@ function AlertBanner({ socios, cultivo, dispensacion }) {
 function Dashboard({ socios, cultivo, dispensacion, finanzas }) {
   const m = useMemo(() => {
     const activos = socios.items.filter((s) => s.estado === "Activo");
-    const atrasados = activos.filter((s) => !s.cuotaAlDia);
+    const atrasados = activos.filter((s) => mesesAdeudados(s, dispensacion.items) > 0);
     const gCosechados = cultivo.items.reduce((a, c) => a + (Number(c.gramosCosechados) || 0), 0);
     const gEntregados = dispensacion.items.reduce((a, d) => a + (Number(d.cantidadGramos) || 0), 0);
     const plantasActivas = cultivo.items.filter((c) => c.etapa !== "Cosecha").reduce((a, c) => a + (Number(c.cantidadPlantas) || 0), 0);
@@ -415,9 +432,45 @@ function useSettings(ready) {
   return { settings, loaded, updateMontoCuota };
 }
 
-function SociosView({ col }) {
+// Formulario para registrar el pago de una o varias cuotas
+function PagoCuotaForm({ socio, montoCuota, onCancel, onSubmit }) {
+  const [meses, setMeses] = useState(1);
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const [fecha, setFecha] = useState(TODAY());
+  const monto = meses * (montoCuota || 0);
+  const gramos = meses * (socio.gramosCuota || 0);
+
+  return (
+    <div className="erp-card" style={{ marginBottom: 20 }}>
+      <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Registrar pago — {socio.nombre}</p>
+      <div className="erp-form-grid">
+        <Field label="Meses a pagar">
+          <input className="erp-input" type="number" min="1" value={meses} onChange={(e) => setMeses(Math.max(1, Number(e.target.value)))} />
+        </Field>
+        <Field label="Método de pago">
+          <select className="erp-select" value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
+            {["Efectivo", "Transferencia", "Tarjeta"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Fecha de pago">
+          <input className="erp-input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </Field>
+      </div>
+      <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12 }}>
+        Total a registrar: <strong>{fmtMoney(monto)}</strong> · Gramos a descontar del stock: <strong>{fmtG(gramos)}</strong>
+      </p>
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button className="erp-btn erp-btn-primary" onClick={() => onSubmit({ meses, metodoPago, fecha, monto, gramos })}>Confirmar pago</button>
+        <button className="erp-btn" onClick={onCancel}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+function SociosView({ col, dispensacion, finanzas, settings }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [pagoSocioId, setPagoSocioId] = useState(null);
   const DIAS_VENCIMIENTO_SOCIOS = 60;
   const fields = [
     { name: "nombre", label: "Nombre completo" },
@@ -427,7 +480,6 @@ function SociosView({ col }) {
     { name: "fechaAlta", label: "Fecha de alta", type: "date", default: TODAY() },
     { name: "telefono", label: "Teléfono" },
     { name: "gramosCuota", label: "Gramos por cuota (mensual)", type: "number", default: 0 },
-    { name: "cuotaAlDia", label: "Cuota al día", type: "checkbox", default: true },
     { name: "estado", label: "Estado", type: "select", options: ["Activo", "Inactivo"], default: "Activo" },
   ];
 
@@ -440,6 +492,31 @@ function SociosView({ col }) {
   }, [col.items]);
 
   const editingSocio = editingId ? col.items.find((s) => s.id === editingId) : null;
+  const pagoSocio = pagoSocioId ? col.items.find((s) => s.id === pagoSocioId) : null;
+
+  const registrarPago = ({ meses, metodoPago, fecha, monto, gramos }) => {
+    dispensacion.add({
+      socioNombre: pagoSocio.nombre,
+      fecha,
+      tipo: "Cuota",
+      cantidadGramos: gramos,
+      tipoCobro: "Cuota mensual",
+      monto,
+      pagado: true,
+      metodoPago,
+      mesesCuota: meses,
+      observaciones: meses > 1 ? `Pago de ${meses} cuotas mensuales` : "Pago de cuota mensual",
+    });
+    finanzas.add({
+      fecha,
+      tipo: "Ingreso",
+      categoria: "Cuota",
+      concepto: pagoSocio.nombre,
+      metodoPago,
+      monto,
+    });
+    setPagoSocioId(null);
+  };
 
   return (
     <>
@@ -483,13 +560,25 @@ function SociosView({ col }) {
           }}
         />
       )}
+
+      {pagoSocio && (
+        <PagoCuotaForm
+          socio={pagoSocio}
+          montoCuota={settings.montoCuota}
+          onCancel={() => setPagoSocioId(null)}
+          onSubmit={registrarPago}
+        />
+      )}
+
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay socios cargados.</p> : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Grs. cuota</th><th>Cuota</th><th>Estado</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Grs. cuota</th><th>Cuotas</th><th>Estado</th><th></th></tr></thead>
             <tbody>
-              {col.items.map((s, i) => (
+              {col.items.map((s, i) => {
+                const deuda = mesesAdeudados(s, dispensacion.items);
+                return (
                 <tr key={s.id}>
                   <td className="erp-mono">{pad(i + 1)}</td>
                   <td>{s.nombre}</td>
@@ -497,14 +586,20 @@ function SociosView({ col }) {
                   <td className="erp-mono">{s.reprocannNumero || "—"}</td>
                   <td>{fmtDate(s.reprocannVencimiento)}</td>
                   <td className="erp-mono">{fmtG(s.gramosCuota)}</td>
-                  <td><button className={`erp-badge ${s.cuotaAlDia ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => col.update(s.id, { cuotaAlDia: !s.cuotaAlDia })} style={{ border: "none", cursor: "pointer" }}>{s.cuotaAlDia ? "Al día" : "Atrasada"}</button></td>
+                  <td>
+                    <span className={`erp-badge ${deuda === 0 ? "erp-badge-moss" : "erp-badge-rust"}`}>
+                      {deuda === 0 ? "Al día" : `Debe ${deuda} cuota${deuda === 1 ? "" : "s"}`}
+                    </span>
+                  </td>
                   <td><span className={`erp-badge ${s.estado === "Activo" ? "erp-badge-moss" : "erp-badge-soil"}`}>{s.estado}</span></td>
-                  <td style={{ display: "flex", gap: 6 }}>
-                    <button className="erp-btn" onClick={() => { setEditingId(s.id); setShowForm(true); }}>Editar</button>
+                  <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="erp-btn erp-btn-primary" onClick={() => { setPagoSocioId(s.id); setShowForm(false); }}>Registrar pago</button>
+                    <button className="erp-btn" onClick={() => { setEditingId(s.id); setShowForm(true); setPagoSocioId(null); }}>Editar</button>
                     <button className="erp-btn erp-btn-danger" onClick={() => col.remove(s.id)}>Borrar</button>
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           </div>
@@ -570,6 +665,7 @@ function DispensacionView({ col, socios, finanzas, settings }) {
     { name: "cantidadGramos", label: "Cantidad (g)", type: "number", default: 0 },
     { name: "tipoCobro", label: "Concepto", type: "select", options: ["Cuota mensual", "Excedente"], default: "Cuota mensual" },
     { name: "monto", label: "Monto (ARS)", type: "number", default: settings.montoCuota || 0 },
+    { name: "metodoPago", label: "Método de pago", type: "select", options: ["Efectivo", "Transferencia", "Tarjeta"], default: "Efectivo" },
     { name: "pagado", label: "Pagado", type: "checkbox", default: true },
     { name: "observaciones", label: "Observaciones" },
   ];
@@ -581,8 +677,9 @@ function DispensacionView({ col, socios, finanzas, settings }) {
       finanzas.add({
         fecha: v.fecha,
         tipo: "Ingreso",
-        categoria: v.tipoCobro || "Cuota mensual",
-        concepto: `${v.tipoCobro || "Cuota"} · ${v.socioNombre}`,
+        categoria: v.tipoCobro === "Excedente" ? "Excedente" : "Cuota",
+        concepto: v.socioNombre,
+        metodoPago: v.metodoPago,
         monto: v.monto,
       });
     }
@@ -671,7 +768,7 @@ function FinanzasView({ col, settings, updateMontoCuota }) {
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay movimientos cargados.</p> : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Monto</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Tipo</th><th>Categoría</th><th>Concepto</th><th>Método</th><th>Monto</th><th></th></tr></thead>
             <tbody>
               {col.items.map((f, i) => (
                 <tr key={f.id}>
@@ -680,6 +777,7 @@ function FinanzasView({ col, settings, updateMontoCuota }) {
                   <td><span className={`erp-badge ${f.tipo === "Ingreso" ? "erp-badge-moss" : "erp-badge-rust"}`}>{f.tipo}</span></td>
                   <td>{f.categoria}</td>
                   <td>{f.concepto}</td>
+                  <td style={{ color: "var(--ink-soft)" }}>{f.metodoPago || "—"}</td>
                   <td className="erp-mono" style={{ color: f.tipo === "Ingreso" ? "var(--moss-dark)" : "var(--rust)" }}>{f.tipo === "Ingreso" ? "+" : "-"}{fmtMoney(f.monto)}</td>
                   <td><button className="erp-btn erp-btn-danger" onClick={() => col.remove(f.id)}>Borrar</button></td>
                 </tr>
@@ -862,7 +960,7 @@ export default function ERPCannabico() {
         {!allLoaded ? <p className="erp-empty">Cargando registros…</p> : (
           <>
             {visibleSection === "dashboard" && <Dashboard socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
-            {visibleSection === "socios" && <SociosView col={socios} />}
+            {visibleSection === "socios" && <SociosView col={socios} dispensacion={dispensacion} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
             {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} />}
