@@ -12,7 +12,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://iochhkqjchsplbgwzvlw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvY2hoa3FqY2hzcGxiZ3d6dmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MDE4MzUsImV4cCI6MjEwMTk3NzgzNX0.TQQSN53_05CtRUcyGG6eE1cE3A-unxlTIhI-vlhP30A";
-const AUTH_EMAIL = "acceso@tuasociacion.org"; // <-- completar con el email del usuario compartido
+const AUTH_EMAIL = "zuluclub.inc@gmail.com"; // <-- completar con el email del usuario compartido
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Mapea nombres de campos del formulario (camelCase) <-> columnas de la tabla (snake_case)
