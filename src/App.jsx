@@ -30,6 +30,7 @@ const FIELD_MAPS = {
   dispensacion: {
     socioNombre: "socio_nombre", fecha: "fecha", tipo: "tipo",
     cantidadGramos: "cantidad_gramos", observaciones: "observaciones",
+    monto: "monto", pagado: "pagado", tipoCobro: "tipo_cobro",
   },
   finanzas: {
     fecha: "fecha", tipo: "tipo", categoria: "categoria",
@@ -468,17 +469,26 @@ function DispensacionView({ col, socios }) {
     { name: "fecha", label: "Fecha", type: "date", default: TODAY() },
     { name: "tipo", label: "Tipo de producto", type: "select", options: ["Flor", "Aceite", "Extracto", "Semilla", "Otro"] },
     { name: "cantidadGramos", label: "Cantidad (g)", type: "number", default: 0 },
+    { name: "tipoCobro", label: "Concepto", type: "select", options: ["Cuota mensual", "Excedente"], default: "Cuota mensual" },
+    { name: "monto", label: "Monto (ARS)", type: "number", default: 0 },
+    { name: "pagado", label: "Pagado", type: "checkbox", default: true },
     { name: "observaciones", label: "Observaciones" },
   ];
+  const totalPendiente = col.items.filter((d) => !d.pagado).reduce((a, d) => a + (Number(d.monto) || 0), 0);
   return (
     <>
-      <SectionHeader title="Dispensación" folio={`Libro III · ${col.items.length} entregas`} onAdd={() => setShowForm(true)} addLabel="+ Nueva entrega" />
+      <SectionHeader
+        title="Dispensación"
+        folio={`Libro III · ${col.items.length} entregas${totalPendiente > 0 ? ` · Pendiente de cobro: ${fmtMoney(totalPendiente)}` : ""}`}
+        onAdd={() => setShowForm(true)}
+        addLabel="+ Nueva entrega"
+      />
       {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
       <div className="erp-card">
         {col.items.length === 0 ? <p className="erp-empty">Todavía no hay entregas registradas.</p> : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Socio</th><th>Tipo</th><th>Cantidad</th><th>Obs.</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Socio</th><th>Tipo</th><th>Cantidad</th><th>Concepto</th><th>Monto</th><th>Cobro</th><th>Obs.</th><th></th></tr></thead>
             <tbody>
               {col.items.map((d, i) => (
                 <tr key={d.id}>
@@ -487,6 +497,13 @@ function DispensacionView({ col, socios }) {
                   <td>{d.socioNombre}</td>
                   <td><span className="erp-badge erp-badge-slate">{d.tipo}</span></td>
                   <td className="erp-mono">{fmtG(d.cantidadGramos)}</td>
+                  <td><span className={`erp-badge ${d.tipoCobro === "Excedente" ? "erp-badge-soil" : "erp-badge-slate"}`}>{d.tipoCobro || "Cuota mensual"}</span></td>
+                  <td className="erp-mono">{fmtMoney(d.monto)}</td>
+                  <td>
+                    <button className={`erp-badge ${d.pagado ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => col.update(d.id, { pagado: !d.pagado })} style={{ border: "none", cursor: "pointer" }}>
+                      {d.pagado ? "Pago" : "Impago"}
+                    </button>
+                  </td>
                   <td style={{ color: "var(--ink-soft)" }}>{d.observaciones || "—"}</td>
                   <td><button className="erp-btn erp-btn-danger" onClick={() => col.remove(d.id)}>Borrar</button></td>
                 </tr>
@@ -543,7 +560,7 @@ function FinanzasView({ col }) {
 const REPORTES = {
   padron: { label: "Padrón de socios", cols: [{ key: "nombre", label: "Nombre" }, { key: "dni", label: "DNI" }, { key: "reprocannNumero", label: "N° REPROCANN" }, { key: "reprocannVencimiento", label: "Vto. REPROCANN", date: true }, { key: "fechaAlta", label: "Fecha de alta", date: true }, { key: "estado", label: "Estado" }], dateField: "fechaAlta" },
   cultivo: { label: "Registro de cultivo", cols: [{ key: "lote", label: "Lote" }, { key: "fechaSiembra", label: "Siembra", date: true }, { key: "cantidadPlantas", label: "Plantas" }, { key: "etapa", label: "Etapa" }, { key: "gramosCosechados", label: "Gramos cosechados" }], dateField: "fechaSiembra" },
-  dispensacion: { label: "Registro de dispensación", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "socioNombre", label: "Socio" }, { key: "tipo", label: "Tipo" }, { key: "cantidadGramos", label: "Gramos" }, { key: "observaciones", label: "Observaciones" }], dateField: "fecha" },
+  dispensacion: { label: "Registro de dispensación", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "socioNombre", label: "Socio" }, { key: "tipo", label: "Tipo" }, { key: "cantidadGramos", label: "Gramos" }, { key: "tipoCobro", label: "Concepto" }, { key: "monto", label: "Monto" }, { key: "pagado", label: "Pagado" }, { key: "observaciones", label: "Observaciones" }], dateField: "fecha" },
   finanzas: { label: "Balance financiero", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "tipo", label: "Tipo" }, { key: "categoria", label: "Categoría" }, { key: "concepto", label: "Concepto" }, { key: "monto", label: "Monto" }], dateField: "fecha" },
 };
 
