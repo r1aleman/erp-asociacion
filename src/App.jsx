@@ -140,6 +140,13 @@ const GlobalStyle = () => (
     .erp-user-chip { font-size: 12px; color: #C7CFB9; padding: 8px 20px 0; margin-top: auto; }
     .erp-user-chip button { background: none; border: none; color: #C7CFB9; text-decoration: underline; cursor: pointer; font-size: 11px; padding: 0; margin-top: 4px; }
     .erp-error { color: var(--rust); font-size: 12px; margin-top: 8px; }
+    .erp-landing { min-height: 100vh; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--moss-dark); padding: 24px; text-align: center; }
+    .erp-landing img { max-width: 260px; width: 80%; height: auto; margin-bottom: 28px; filter: drop-shadow(0 8px 24px rgba(0,0,0,0.4)); }
+    .erp-landing-btn {
+      font-family: 'IBM Plex Sans', sans-serif; font-size: 15px; font-weight: 600; padding: 14px 40px;
+      border-radius: 4px; border: none; background: var(--moss-light); color: var(--moss-dark); cursor: pointer;
+    }
+    .erp-landing-btn:hover { background: #fff; }
     .erp-menu-toggle { display: none; }
     .erp-overlay { display: none; }
     @media (max-width: 768px) {
@@ -259,6 +266,16 @@ function SectionHeader({ title, folio, onAdd, addLabel }) {
         <p className="erp-folio">{folio}</p>
       </div>
       {onAdd && <button className="erp-btn erp-btn-primary" onClick={onAdd}>{addLabel}</button>}
+    </div>
+  );
+}
+
+// Pantalla de bienvenida con el logo de la asociación
+function Landing({ onEnter }) {
+  return (
+    <div className="erp-landing">
+      <img src="/logo.png" alt="Zulu Club Inc." />
+      <button className="erp-landing-btn" onClick={onEnter}>Ingresar</button>
     </div>
   );
 }
@@ -756,6 +773,7 @@ function ReportesView({ socios, cultivo, dispensacion, finanzas }) {
 }
 
 export default function ERPCannabico() {
+  const [entered, setEntered] = useState(false);
   const [section, setSection] = useState("dashboard");
   const [role, setRole] = useState(null);
   const [authed, setAuthed] = useState(false);
@@ -810,6 +828,7 @@ export default function ERPCannabico() {
 
   const allLoaded = socios.loaded && cultivo.loaded && dispensacion.loaded && finanzas.loaded;
 
+  if (!entered) return <div className="erp-root"><GlobalStyle /><Landing onEnter={() => setEntered(true)} /></div>;
   if (!authLoaded) return <div className="erp-root"><GlobalStyle /></div>;
   if (!authed) return <div className="erp-root"><GlobalStyle /><LoginGate onSuccess={() => setAuthed(true)} /></div>;
   if (!role) return <div className="erp-root"><GlobalStyle /><RoleGate onSelect={chooseRole} /></div>;
