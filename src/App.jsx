@@ -22,9 +22,12 @@ const FIELD_MAPS = {
     telefono: "telefono", estado: "estado", gramosCuota: "gramos_cuota",
   },
   cultivo: {
-    lote: "lote", fechaSiembra: "fecha_siembra", cantidadPlantas: "cantidad_plantas",
+    lote: "lote", variedad: "variedad", fechaSiembra: "fecha_siembra", cantidadPlantas: "cantidad_plantas",
     etapa: "etapa", fechaCosechaEstimada: "fecha_cosecha_estimada",
     gramosCosechados: "gramos_cosechados",
+  },
+  cultivoHistorial: {
+    loteId: "lote_id", etapa: "etapa", fechaInicio: "fecha_inicio", fechaFin: "fecha_fin",
   },
   madres: {
     nombre: "nombre", variedad: "variedad", fechaInicio: "fecha_inicio", estado: "estado",
@@ -225,9 +228,10 @@ function useCollection(table, ready) {
   useEffect(() => { if (ready) reload(); }, [table, ready]);
 
   const add = async (record) => {
-    const { error } = await supabase.from(table).insert(toDb(table, record));
-    if (error) console.error(error);
+    const { data, error } = await supabase.from(table).insert(toDb(table, record)).select().single();
+    if (error) { console.error(error); await reload(); return null; }
     await reload();
+    return data ? fromDb(table, data) : null;
   };
   const update = async (id, patch) => {
     const { error } = await supabase.from(table).update(toDb(table, patch)).eq("id", id);
@@ -661,42 +665,122 @@ function SociosView({ col, dispensacion, finanzas, settings }) {
   );
 }
 
-function CultivoView({ col }) {
+// Duración en días entre dos fechas (o hasta hoy si no hay fecha de fin)
+const duracionTexto = (h) => {
+  const fin = h.fechaFin || TODAY();
+  const dias = Math.max(0, Math.round((new Date(fin + "T00:00:00") - new Date(h.fechaInicio + "T00:00:00")) / 86400000));
+  return h.fechaFin ? `${dias} días` : `${dias} días (en curso)`;
+};
+
+function CultivoView({ col, historial }) {
   const [showForm, setShowForm] = useState(false);
+  const [filtroEtapa, setFiltroEtapa] = useState("Todos");
+  const ETAPAS = ["Germinación", "Vegetativo", "Floración", "Cosecha", "Secado"];
   const fields = [
     { name: "lote", label: "Lote / identificación" },
+    { name: "variedad", label: "Variedad" },
     { name: "fechaSiembra", label: "Fecha de siembra", type: "date", default: TODAY() },
     { name: "cantidadPlantas", label: "Cantidad de plantas", type: "number", default: 0 },
-    { name: "etapa", label: "Etapa", type: "select", options: ["Germinación", "Vegetativo", "Floración", "Cosecha", "Secado"], default: "Vegetativo" },
+    { name: "etapa", label: "Etapa", type: "select", options: ETAPAS, default: "Vegetativo" },
     { name: "fechaCosechaEstimada", label: "Cosecha estimada", type: "date" },
     { name: "gramosCosechados", label: "Gramos cosechados", type: "number", default: 0 },
   ];
+
+  const handleNuevoLote = async (v) => {
+    const nuevo = await col.add(v);
+    if (nuevo) {
+      await historial.add({ loteId: nuevo.id, etapa: v.etapa, fechaInicio: v.fechaSiembra || TODAY(), fechaFin: null });
+    }
+    setShowForm(false);
+  };
+
+  const cambiarEtapa = async (lote, nuevaEtapa) => {
+    if (nuevaEtapa === lote.etapa) return;
+    const hoy = TODAY();
+    const abierto = historial.items.find((h) => h.loteId === lote.id && !h.fechaFin);
+    if (abierto) await historial.update(abierto.id, { fechaFin: hoy });
+    await historial.add({ loteId: lote.id, etapa: nuevaEtapa, fechaInicio: hoy, fechaFin: null });
+    await col.update(lote.id, { etapa: nuevaEtapa });
+  };
+
+  const diasEnEtapa = (lote) => {
+    const abierto = historial.items.find((h) => h.loteId === lote.id && !h.fechaFin);
+    if (!abierto) return null;
+    return Math.max(0, Math.round((new Date(TODAY() + "T00:00:00") - new Date(abierto.fechaInicio + "T00:00:00")) / 86400000));
+  };
+
+  const filtrados = filtroEtapa === "Todos" ? col.items : col.items.filter((c) => c.etapa === filtroEtapa);
+
+  const historialConLote = useMemo(() => {
+    return historial.items
+      .map((h) => ({ ...h, loteNombre: col.items.find((l) => l.id === h.loteId)?.lote || "—" }))
+      .sort((a, b) => (b.fechaInicio || "").localeCompare(a.fechaInicio || ""));
+  }, [historial.items, col.items]);
+
   return (
     <>
       <SectionHeader title="Cultivo" folio={`Libro II · ${col.items.length} lotes`} onAdd={() => setShowForm(true)} addLabel="+ Nuevo lote" />
-      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={(v) => { col.add(v); setShowForm(false); }} />}
-      <div className="erp-card">
-        {col.items.length === 0 ? <p className="erp-empty">Todavía no hay lotes cargados.</p> : (
+      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={handleNuevoLote} />}
+
+      <div className="erp-card" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className={filtroEtapa === "Todos" ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltroEtapa("Todos")}>Todos</button>
+          {ETAPAS.map((e) => (
+            <button key={e} className={filtroEtapa === e ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltroEtapa(e)}>{e}</button>
+          ))}
+        </div>
+      </div>
+
+      <div className="erp-card" style={{ marginBottom: 24 }}>
+        {filtrados.length === 0 ? (
+          <p className="erp-empty">{col.items.length === 0 ? "Todavía no hay lotes cargados." : "No hay lotes en esta etapa."}</p>
+        ) : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Lote</th><th>Siembra</th><th>Plantas</th><th>Etapa</th><th>Cosecha est.</th><th>Cosechado</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Lote</th><th>Variedad</th><th>Siembra</th><th>Plantas</th><th>Etapa</th><th>Días en etapa</th><th>Cosecha est.</th><th>Cosechado</th><th></th></tr></thead>
             <tbody>
-              {col.items.map((c, i) => (
+              {filtrados.map((c, i) => (
                 <tr key={c.id}>
                   <td className="erp-mono">{pad(i + 1)}</td>
                   <td>{c.lote}</td>
+                  <td>{c.variedad || "—"}</td>
                   <td>{fmtDate(c.fechaSiembra)}</td>
                   <td className="erp-mono">{c.cantidadPlantas}</td>
                   <td>
-                    <select className="erp-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={c.etapa} onChange={(e) => col.update(c.id, { etapa: e.target.value })}>
-                      {["Germinación", "Vegetativo", "Floración", "Cosecha", "Secado"].map((o) => <option key={o} value={o}>{o}</option>)}
+                    <select className="erp-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={c.etapa} onChange={(e) => cambiarEtapa(c, e.target.value)}>
+                      {ETAPAS.map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </td>
+                  <td className="erp-mono">{diasEnEtapa(c) !== null ? `${diasEnEtapa(c)} días` : "—"}</td>
                   <td>{fmtDate(c.fechaCosechaEstimada)}</td>
                   <td className="erp-mono">
                     <input className="erp-input" style={{ width: 80, padding: "4px 6px" }} type="number" defaultValue={c.gramosCosechados || 0} onBlur={(e) => col.update(c.id, { gramosCosechados: Number(e.target.value) })} />
                   </td>
                   <td><button className="erp-btn erp-btn-danger" onClick={() => col.remove(c.id)}>Borrar</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      <div className="erp-header-row" style={{ borderBottom: "none", marginBottom: 12 }}>
+        <p className="erp-serif" style={{ fontSize: 16 }}>Historial de etapas</p>
+      </div>
+      <div className="erp-card">
+        {historialConLote.length === 0 ? <p className="erp-empty">Todavía no hay cambios de etapa registrados.</p> : (
+          <div className="erp-table-wrap">
+          <table className="erp-table">
+            <thead><tr><th>Lote</th><th>Etapa</th><th>Inicio</th><th>Fin</th><th>Duración</th></tr></thead>
+            <tbody>
+              {historialConLote.map((h) => (
+                <tr key={h.id}>
+                  <td>{h.loteNombre}</td>
+                  <td><span className="erp-badge erp-badge-slate">{h.etapa}</span></td>
+                  <td>{fmtDate(h.fechaInicio)}</td>
+                  <td>{h.fechaFin ? fmtDate(h.fechaFin) : "En curso"}</td>
+                  <td className="erp-mono">{duracionTexto(h)}</td>
                 </tr>
               ))}
             </tbody>
@@ -762,7 +846,7 @@ function AsignarDestinoForm({ batch, disponible, onCancel, onSubmit }) {
 }
 
 // Sección Clones: madres, tandas de clones y asignación de destino por cantidad
-function ClonesView({ madres, clones, movimientos, cultivo, finanzas }) {
+function ClonesView({ madres, clones, movimientos, cultivo, cultivoHistorial, finanzas }) {
   const [showMadreForm, setShowMadreForm] = useState(false);
   const [showCloneForm, setShowCloneForm] = useState(false);
   const [asignandoId, setAsignandoId] = useState(null);
@@ -791,7 +875,7 @@ function ClonesView({ madres, clones, movimientos, cultivo, finanzas }) {
 
   const asignandoBatch = asignandoId ? clones.items.find((c) => c.id === asignandoId) : null;
 
-  const confirmarAsignacion = (batch, v) => {
+  const confirmarAsignacion = async (batch, v) => {
     movimientos.add({
       loteId: batch.id,
       madreNombre: batch.madreNombre,
@@ -804,14 +888,18 @@ function ClonesView({ madres, clones, movimientos, cultivo, finanzas }) {
       observaciones: v.observaciones,
     });
     if (v.destino === "Cultivo") {
-      cultivo.add({
+      const nuevoLote = await cultivo.add({
         lote: `Clones · ${batch.madreNombre} (${fmtDate(v.fecha)})`,
+        variedad: "",
         fechaSiembra: v.fecha,
         cantidadPlantas: v.cantidad,
         etapa: "Vegetativo",
         fechaCosechaEstimada: "",
         gramosCosechados: 0,
       });
+      if (nuevoLote) {
+        await cultivoHistorial.add({ loteId: nuevoLote.id, etapa: "Vegetativo", fechaInicio: v.fecha, fechaFin: null });
+      }
     }
     if (v.destino === "Venta" && v.montoTotal > 0) {
       finanzas.add({
@@ -1276,6 +1364,7 @@ export default function ERPCannabico() {
   const [menuOpen, setMenuOpen] = useState(false);
   const socios = useCollection("socios", authed);
   const cultivo = useCollection("cultivo", authed);
+  const cultivoHistorial = useCollection("cultivo_historial", authed);
   const madres = useCollection("madres", authed);
   const clones = useCollection("clones", authed);
   const clonMovimientos = useCollection("clon_movimientos", authed);
@@ -1325,7 +1414,7 @@ export default function ERPCannabico() {
     { key: "reportes", label: "Reportes", num: "06" },
   ];
 
-  const allLoaded = socios.loaded && cultivo.loaded && madres.loaded && clones.loaded && clonMovimientos.loaded && dispensacion.loaded && finanzas.loaded;
+  const allLoaded = socios.loaded && cultivo.loaded && cultivoHistorial.loaded && madres.loaded && clones.loaded && clonMovimientos.loaded && dispensacion.loaded && finanzas.loaded;
 
   if (!entered) return <div className="erp-root"><GlobalStyle /><Landing onEnter={() => setEntered(true)} /></div>;
   if (!authLoaded) return <div className="erp-root"><GlobalStyle /></div>;
@@ -1362,8 +1451,8 @@ export default function ERPCannabico() {
           <>
             {visibleSection === "dashboard" && <Dashboard socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
             {visibleSection === "socios" && <SociosView col={socios} dispensacion={dispensacion} finanzas={finanzas} settings={settingsHook.settings} />}
-            {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
-            {visibleSection === "clones" && <ClonesView madres={madres} clones={clones} movimientos={clonMovimientos} cultivo={cultivo} finanzas={finanzas} />}
+            {visibleSection === "cultivo" && <CultivoView col={cultivo} historial={cultivoHistorial} />}
+            {visibleSection === "clones" && <ClonesView madres={madres} clones={clones} movimientos={clonMovimientos} cultivo={cultivo} cultivoHistorial={cultivoHistorial} finanzas={finanzas} />}
             {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} updateValorGramo={settingsHook.updateValorGramo} />}
             {visibleSection === "reportes" && <ReportesView socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
