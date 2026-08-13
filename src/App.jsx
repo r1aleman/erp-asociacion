@@ -708,10 +708,64 @@ function CultivoView({ col }) {
   );
 }
 
-// Sección Clones: madres y tandas de clones derivadas de cada una
-function ClonesView({ madres, clones, cultivo }) {
+// Formulario para asignar destino a una cantidad de clones de una tanda
+function AsignarDestinoForm({ batch, disponible, onCancel, onSubmit }) {
+  const [cantidad, setCantidad] = useState(disponible);
+  const [destino, setDestino] = useState("Venta");
+  const [fecha, setFecha] = useState(TODAY());
+  const [montoUnitario, setMontoUnitario] = useState(0);
+  const [comprador, setComprador] = useState("");
+  const [observaciones, setObservaciones] = useState("");
+  const montoTotal = destino === "Venta" ? cantidad * (montoUnitario || 0) : 0;
+
+  return (
+    <div className="erp-card" style={{ marginBottom: 20 }}>
+      <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Asignar destino — {batch.madreNombre} (disponibles: {disponible})</p>
+      <div className="erp-form-grid">
+        <Field label="Cantidad">
+          <input className="erp-input" type="number" min="1" max={disponible} value={cantidad} onChange={(e) => setCantidad(Math.min(disponible, Math.max(1, Number(e.target.value))))} />
+        </Field>
+        <Field label="Destino">
+          <select className="erp-select" value={destino} onChange={(e) => setDestino(e.target.value)}>
+            {["Venta", "Cultivo", "Descartar", "Madre"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Fecha">
+          <input className="erp-input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </Field>
+        {destino === "Venta" && (
+          <>
+            <Field label="Monto por unidad (ARS)">
+              <input className="erp-input" type="number" value={montoUnitario} onChange={(e) => setMontoUnitario(Number(e.target.value))} />
+            </Field>
+            <Field label="Comprador (opcional)">
+              <input className="erp-input" value={comprador} onChange={(e) => setComprador(e.target.value)} />
+            </Field>
+          </>
+        )}
+        <Field label="Observaciones">
+          <input className="erp-input" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+        </Field>
+      </div>
+      {destino === "Venta" && (
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 10 }}>Total de la venta: <strong>{fmtMoney(montoTotal)}</strong> — se suma como ingreso en Finanzas.</p>
+      )}
+      {destino === "Cultivo" && (
+        <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 10 }}>Se crea un lote nuevo en Cultivo con {cantidad} planta{cantidad === 1 ? "" : "s"}.</p>
+      )}
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button className="erp-btn erp-btn-primary" onClick={() => onSubmit({ cantidad, destino, fecha, montoUnitario, montoTotal, comprador, observaciones })}>Confirmar</button>
+        <button className="erp-btn" onClick={onCancel}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
+// Sección Clones: madres, tandas de clones y asignación de destino por cantidad
+function ClonesView({ madres, clones, movimientos, cultivo, finanzas }) {
   const [showMadreForm, setShowMadreForm] = useState(false);
   const [showCloneForm, setShowCloneForm] = useState(false);
+  const [asignandoId, setAsignandoId] = useState(null);
 
   const madreFields = [
     { name: "nombre", label: "Nombre / identificación" },
@@ -724,21 +778,52 @@ function ClonesView({ madres, clones, cultivo }) {
     { name: "madreNombre", label: "Madre", type: "select", options: madresNombres.length ? madresNombres : ["Sin madres cargadas"] },
     { name: "cantidad", label: "Cantidad de clones", type: "number", default: 0 },
     { name: "fechaInicio", label: "Fecha de inicio", type: "date", default: TODAY() },
-    { name: "etapa", label: "Etapa", type: "select", options: ["Enraizando", "Listo para trasplante", "Trasplantado", "Descartado"], default: "Enraizando" },
-    { name: "destino", label: "Destino", type: "select", options: ["Sin definir", "Pasa a Cultivo", "Venta"], default: "Sin definir" },
+    { name: "etapa", label: "Etapa de crecimiento", type: "select", options: ["Enraizando", "Listo para trasplante", "Trasplantado", "Descartado"], default: "Enraizando" },
     { name: "observaciones", label: "Observaciones" },
   ];
 
-  const pasarACultivo = (c) => {
-    cultivo.add({
-      lote: `Clones · ${c.madreNombre} (${fmtDate(c.fechaInicio)})`,
-      fechaSiembra: TODAY(),
-      cantidadPlantas: c.cantidad,
-      etapa: "Vegetativo",
-      fechaCosechaEstimada: "",
-      gramosCosechados: 0,
+  const disponible = (batch) => {
+    const asignado = movimientos.items
+      .filter((m) => m.loteId === batch.id)
+      .reduce((a, m) => a + (Number(m.cantidad) || 0), 0);
+    return Math.max(0, (Number(batch.cantidad) || 0) - asignado);
+  };
+
+  const asignandoBatch = asignandoId ? clones.items.find((c) => c.id === asignandoId) : null;
+
+  const confirmarAsignacion = (batch, v) => {
+    movimientos.add({
+      loteId: batch.id,
+      madreNombre: batch.madreNombre,
+      cantidad: v.cantidad,
+      destino: v.destino,
+      fecha: v.fecha,
+      montoUnitario: v.montoUnitario,
+      montoTotal: v.montoTotal,
+      comprador: v.comprador,
+      observaciones: v.observaciones,
     });
-    clones.update(c.id, { pasadoACultivo: true });
+    if (v.destino === "Cultivo") {
+      cultivo.add({
+        lote: `Clones · ${batch.madreNombre} (${fmtDate(v.fecha)})`,
+        fechaSiembra: v.fecha,
+        cantidadPlantas: v.cantidad,
+        etapa: "Vegetativo",
+        fechaCosechaEstimada: "",
+        gramosCosechados: 0,
+      });
+    }
+    if (v.destino === "Venta" && v.montoTotal > 0) {
+      finanzas.add({
+        fecha: v.fecha,
+        tipo: "Ingreso",
+        categoria: "Venta clones",
+        concepto: `Clones · ${batch.madreNombre}${v.comprador ? " · " + v.comprador : ""} (${v.cantidad} u.)`,
+        metodoPago: "",
+        monto: v.montoTotal,
+      });
+    }
+    setAsignandoId(null);
   };
 
   return (
@@ -782,17 +867,22 @@ function ClonesView({ madres, clones, cultivo }) {
       {showCloneForm && (
         <AddForm fields={cloneFields} onCancel={() => setShowCloneForm(false)} onSubmit={(v) => { clones.add(v); setShowCloneForm(false); }} />
       )}
-      <div className="erp-card">
+      <div className="erp-card" style={{ marginBottom: 24 }}>
         {clones.items.length === 0 ? <p className="erp-empty">Todavía no hay tandas de clones cargadas.</p> : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Madre</th><th>Cantidad</th><th>Inicio</th><th>Edad</th><th>Etapa</th><th>Destino</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Madre</th><th>Total</th><th>Disponible</th><th>Inicio</th><th>Edad</th><th>Etapa</th><th></th></tr></thead>
             <tbody>
-              {clones.items.map((c, i) => (
+              {clones.items.map((c, i) => {
+                const disp = disponible(c);
+                return (
                 <tr key={c.id}>
                   <td className="erp-mono">{pad(i + 1)}</td>
                   <td>{c.madreNombre}</td>
                   <td className="erp-mono">{c.cantidad}</td>
+                  <td className="erp-mono">
+                    <span className={`erp-badge ${disp > 0 ? "erp-badge-slate" : "erp-badge-moss"}`}>{disp}</span>
+                  </td>
                   <td>{fmtDate(c.fechaInicio)}</td>
                   <td className="erp-mono">{edadTexto(c.fechaInicio)}</td>
                   <td>
@@ -800,18 +890,47 @@ function ClonesView({ madres, clones, cultivo }) {
                       {["Enraizando", "Listo para trasplante", "Trasplantado", "Descartado"].map((o) => <option key={o} value={o}>{o}</option>)}
                     </select>
                   </td>
-                  <td>
-                    <select className="erp-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={c.destino} onChange={(e) => clones.update(c.id, { destino: e.target.value })}>
-                      {["Sin definir", "Pasa a Cultivo", "Venta"].map((o) => <option key={o} value={o}>{o}</option>)}
-                    </select>
-                  </td>
                   <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                    {c.destino === "Pasa a Cultivo" && !c.pasadoACultivo && (
-                      <button className="erp-btn erp-btn-primary" onClick={() => pasarACultivo(c)}>Pasar a Cultivo</button>
-                    )}
-                    {c.pasadoACultivo && <span className="erp-badge erp-badge-moss">Ya en Cultivo</span>}
+                    {disp > 0 && <button className="erp-btn erp-btn-primary" onClick={() => setAsignandoId(c.id)}>Asignar destino</button>}
                     <button className="erp-btn erp-btn-danger" onClick={() => clones.remove(c.id)}>Borrar</button>
                   </td>
+                </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      {asignandoBatch && (
+        <AsignarDestinoForm
+          batch={asignandoBatch}
+          disponible={disponible(asignandoBatch)}
+          onCancel={() => setAsignandoId(null)}
+          onSubmit={(v) => confirmarAsignacion(asignandoBatch, v)}
+        />
+      )}
+
+      <div className="erp-header-row" style={{ borderBottom: "none", marginBottom: 12 }}>
+        <p className="erp-serif" style={{ fontSize: 16 }}>Movimientos de clones</p>
+      </div>
+      <div className="erp-card">
+        {movimientos.items.length === 0 ? <p className="erp-empty">Todavía no hay destinos asignados.</p> : (
+          <div className="erp-table-wrap">
+          <table className="erp-table">
+            <thead><tr><th>N°</th><th>Fecha</th><th>Madre</th><th>Cantidad</th><th>Destino</th><th>Monto</th><th>Comprador</th><th>Obs.</th></tr></thead>
+            <tbody>
+              {movimientos.items.map((m, i) => (
+                <tr key={m.id}>
+                  <td className="erp-mono">{pad(i + 1)}</td>
+                  <td>{fmtDate(m.fecha)}</td>
+                  <td>{m.madreNombre}</td>
+                  <td className="erp-mono">{m.cantidad}</td>
+                  <td><span className={`erp-badge ${m.destino === "Venta" ? "erp-badge-moss" : m.destino === "Cultivo" ? "erp-badge-slate" : m.destino === "Descartar" ? "erp-badge-rust" : "erp-badge-soil"}`}>{m.destino}</span></td>
+                  <td className="erp-mono">{m.destino === "Venta" ? fmtMoney(m.montoTotal) : "—"}</td>
+                  <td style={{ color: "var(--ink-soft)" }}>{m.comprador || "—"}</td>
+                  <td style={{ color: "var(--ink-soft)" }}>{m.observaciones || "—"}</td>
                 </tr>
               ))}
             </tbody>
@@ -1159,6 +1278,7 @@ export default function ERPCannabico() {
   const cultivo = useCollection("cultivo", authed);
   const madres = useCollection("madres", authed);
   const clones = useCollection("clones", authed);
+  const clonMovimientos = useCollection("clon_movimientos", authed);
   const dispensacion = useCollection("dispensacion", authed);
   const finanzas = useCollection("finanzas", authed);
   const settingsHook = useSettings(authed);
@@ -1205,7 +1325,7 @@ export default function ERPCannabico() {
     { key: "reportes", label: "Reportes", num: "06" },
   ];
 
-  const allLoaded = socios.loaded && cultivo.loaded && madres.loaded && clones.loaded && dispensacion.loaded && finanzas.loaded;
+  const allLoaded = socios.loaded && cultivo.loaded && madres.loaded && clones.loaded && clonMovimientos.loaded && dispensacion.loaded && finanzas.loaded;
 
   if (!entered) return <div className="erp-root"><GlobalStyle /><Landing onEnter={() => setEntered(true)} /></div>;
   if (!authLoaded) return <div className="erp-root"><GlobalStyle /></div>;
@@ -1243,7 +1363,7 @@ export default function ERPCannabico() {
             {visibleSection === "dashboard" && <Dashboard socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
             {visibleSection === "socios" && <SociosView col={socios} dispensacion={dispensacion} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
-            {visibleSection === "clones" && <ClonesView madres={madres} clones={clones} cultivo={cultivo} />}
+            {visibleSection === "clones" && <ClonesView madres={madres} clones={clones} movimientos={clonMovimientos} cultivo={cultivo} finanzas={finanzas} />}
             {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} updateValorGramo={settingsHook.updateValorGramo} />}
             {visibleSection === "reportes" && <ReportesView socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
