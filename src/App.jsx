@@ -26,6 +26,18 @@ const FIELD_MAPS = {
     etapa: "etapa", fechaCosechaEstimada: "fecha_cosecha_estimada",
     gramosCosechados: "gramos_cosechados",
   },
+  madres: {
+    nombre: "nombre", variedad: "variedad", fechaInicio: "fecha_inicio", estado: "estado",
+  },
+  clones: {
+    madreNombre: "madre_nombre", cantidad: "cantidad", fechaInicio: "fecha_inicio",
+    etapa: "etapa", observaciones: "observaciones",
+  },
+  clonMovimientos: {
+    loteId: "lote_id", madreNombre: "madre_nombre", cantidad: "cantidad", destino: "destino",
+    fecha: "fecha", montoUnitario: "monto_unitario", montoTotal: "monto_total",
+    comprador: "comprador", observaciones: "observaciones",
+  },
   dispensacion: {
     socioNombre: "socio_nombre", fecha: "fecha", tipo: "tipo",
     cantidadGramos: "cantidad_gramos", observaciones: "observaciones",
@@ -67,6 +79,16 @@ const daysUntil = (d) => {
   const now = new Date(TODAY() + "T00:00:00");
   return Math.round((target - now) / 86400000);
 };
+// Edad en semanas y meses a partir de una fecha de inicio (para madres y clones)
+const edadTexto = (fechaInicio) => {
+  if (!fechaInicio) return "—";
+  const start = new Date(fechaInicio + "T00:00:00");
+  const now = new Date(TODAY() + "T00:00:00");
+  const dias = Math.max(0, Math.round((now - start) / 86400000));
+  const semanas = Math.floor(dias / 7);
+  const meses = Math.floor(dias / 30);
+  return `${semanas} sem. (${meses} ${meses === 1 ? "mes" : "meses"})`;
+};
 
 // Cálculo de cuotas adeudadas: meses transcurridos desde el alta vs. meses pagados en Dispensación
 function mesesTranscurridos(fechaAlta) {
@@ -85,9 +107,9 @@ function mesesAdeudados(socio, dispensacionItems) {
 }
 
 const ROLES = {
-  admin: { label: "Administración", sections: ["dashboard", "socios", "cultivo", "dispensacion", "finanzas", "reportes"] },
+  admin: { label: "Administración", sections: ["dashboard", "socios", "cultivo", "clones", "dispensacion", "finanzas", "reportes"] },
   tesoreria: { label: "Tesorería", sections: ["dashboard", "socios", "finanzas", "reportes"] },
-  cultivo: { label: "Cultivo", sections: ["dashboard", "cultivo", "dispensacion", "reportes"] },
+  cultivo: { label: "Cultivo", sections: ["dashboard", "cultivo", "clones", "dispensacion", "reportes"] },
 };
 
 const STOCK_MINIMO = 50;
@@ -426,7 +448,7 @@ function Dashboard({ socios, cultivo, dispensacion, finanzas }) {
         <div className="erp-card"><p className="erp-metric-label">Balance</p><p className="erp-metric-value erp-mono" style={{ fontSize: 22, color: m.balance < 0 ? "var(--rust)" : "var(--moss-dark)" }}>{fmtMoney(m.balance)}</p></div>
       </div>
       <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 28 }}>
-        Este panel resume los cuatro libros de registro de la asociación. Usá la navegación de la izquierda para cargar socios, lotes de cultivo, entregas y movimientos de caja.
+        Este panel resume los libros de registro de la asociación. Usá la navegación de la izquierda para cargar socios, cultivo, clones, entregas y movimientos de caja.
       </p>
     </>
   );
@@ -686,6 +708,121 @@ function CultivoView({ col }) {
   );
 }
 
+// Sección Clones: madres y tandas de clones derivadas de cada una
+function ClonesView({ madres, clones, cultivo }) {
+  const [showMadreForm, setShowMadreForm] = useState(false);
+  const [showCloneForm, setShowCloneForm] = useState(false);
+
+  const madreFields = [
+    { name: "nombre", label: "Nombre / identificación" },
+    { name: "variedad", label: "Variedad (opcional)" },
+    { name: "fechaInicio", label: "Fecha de inicio", type: "date", default: TODAY() },
+    { name: "estado", label: "Estado", type: "select", options: ["Activa", "Descartada"], default: "Activa" },
+  ];
+  const madresNombres = madres.items.filter((m) => m.estado === "Activa").map((m) => m.nombre);
+  const cloneFields = [
+    { name: "madreNombre", label: "Madre", type: "select", options: madresNombres.length ? madresNombres : ["Sin madres cargadas"] },
+    { name: "cantidad", label: "Cantidad de clones", type: "number", default: 0 },
+    { name: "fechaInicio", label: "Fecha de inicio", type: "date", default: TODAY() },
+    { name: "etapa", label: "Etapa", type: "select", options: ["Enraizando", "Listo para trasplante", "Trasplantado", "Descartado"], default: "Enraizando" },
+    { name: "destino", label: "Destino", type: "select", options: ["Sin definir", "Pasa a Cultivo", "Venta"], default: "Sin definir" },
+    { name: "observaciones", label: "Observaciones" },
+  ];
+
+  const pasarACultivo = (c) => {
+    cultivo.add({
+      lote: `Clones · ${c.madreNombre} (${fmtDate(c.fechaInicio)})`,
+      fechaSiembra: TODAY(),
+      cantidadPlantas: c.cantidad,
+      etapa: "Vegetativo",
+      fechaCosechaEstimada: "",
+      gramosCosechados: 0,
+    });
+    clones.update(c.id, { pasadoACultivo: true });
+  };
+
+  return (
+    <>
+      <SectionHeader title="Cultivo · Clones" folio={`Libro extra · ${madres.items.length} madres · ${clones.items.length} tandas de clones`} />
+
+      <div className="erp-header-row" style={{ borderBottom: "none", marginBottom: 12 }}>
+        <p className="erp-serif" style={{ fontSize: 16 }}>Madres</p>
+        <button className="erp-btn erp-btn-primary" onClick={() => setShowMadreForm(true)}>+ Nueva madre</button>
+      </div>
+      {showMadreForm && (
+        <AddForm fields={madreFields} onCancel={() => setShowMadreForm(false)} onSubmit={(v) => { madres.add(v); setShowMadreForm(false); }} />
+      )}
+      <div className="erp-card" style={{ marginBottom: 24 }}>
+        {madres.items.length === 0 ? <p className="erp-empty">Todavía no hay madres cargadas.</p> : (
+          <div className="erp-table-wrap">
+          <table className="erp-table">
+            <thead><tr><th>N°</th><th>Nombre</th><th>Variedad</th><th>Inicio</th><th>Edad</th><th>Estado</th><th></th></tr></thead>
+            <tbody>
+              {madres.items.map((m, i) => (
+                <tr key={m.id}>
+                  <td className="erp-mono">{pad(i + 1)}</td>
+                  <td>{m.nombre}</td>
+                  <td>{m.variedad || "—"}</td>
+                  <td>{fmtDate(m.fechaInicio)}</td>
+                  <td className="erp-mono">{edadTexto(m.fechaInicio)}</td>
+                  <td><span className={`erp-badge ${m.estado === "Activa" ? "erp-badge-moss" : "erp-badge-soil"}`}>{m.estado}</span></td>
+                  <td><button className="erp-btn erp-btn-danger" onClick={() => madres.remove(m.id)}>Borrar</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+
+      <div className="erp-header-row" style={{ borderBottom: "none", marginBottom: 12 }}>
+        <p className="erp-serif" style={{ fontSize: 16 }}>Clones</p>
+        <button className="erp-btn erp-btn-primary" onClick={() => setShowCloneForm(true)}>+ Nueva tanda de clones</button>
+      </div>
+      {showCloneForm && (
+        <AddForm fields={cloneFields} onCancel={() => setShowCloneForm(false)} onSubmit={(v) => { clones.add(v); setShowCloneForm(false); }} />
+      )}
+      <div className="erp-card">
+        {clones.items.length === 0 ? <p className="erp-empty">Todavía no hay tandas de clones cargadas.</p> : (
+          <div className="erp-table-wrap">
+          <table className="erp-table">
+            <thead><tr><th>N°</th><th>Madre</th><th>Cantidad</th><th>Inicio</th><th>Edad</th><th>Etapa</th><th>Destino</th><th></th></tr></thead>
+            <tbody>
+              {clones.items.map((c, i) => (
+                <tr key={c.id}>
+                  <td className="erp-mono">{pad(i + 1)}</td>
+                  <td>{c.madreNombre}</td>
+                  <td className="erp-mono">{c.cantidad}</td>
+                  <td>{fmtDate(c.fechaInicio)}</td>
+                  <td className="erp-mono">{edadTexto(c.fechaInicio)}</td>
+                  <td>
+                    <select className="erp-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={c.etapa} onChange={(e) => clones.update(c.id, { etapa: e.target.value })}>
+                      {["Enraizando", "Listo para trasplante", "Trasplantado", "Descartado"].map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </td>
+                  <td>
+                    <select className="erp-select" style={{ width: "auto", padding: "3px 6px", fontSize: 12 }} value={c.destino} onChange={(e) => clones.update(c.id, { destino: e.target.value })}>
+                      {["Sin definir", "Pasa a Cultivo", "Venta"].map((o) => <option key={o} value={o}>{o}</option>)}
+                    </select>
+                  </td>
+                  <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    {c.destino === "Pasa a Cultivo" && !c.pasadoACultivo && (
+                      <button className="erp-btn erp-btn-primary" onClick={() => pasarACultivo(c)}>Pasar a Cultivo</button>
+                    )}
+                    {c.pasadoACultivo && <span className="erp-badge erp-badge-moss">Ya en Cultivo</span>}
+                    <button className="erp-btn erp-btn-danger" onClick={() => clones.remove(c.id)}>Borrar</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        )}
+      </div>
+    </>
+  );
+}
+
 // Formulario de nueva entrega — calcula el monto solo a partir de los gramos y el valor por gramo
 function NuevaEntregaForm({ sociosNombres, valorGramo, onCancel, onSubmit }) {
   const [socioNombre, setSocioNombre] = useState(sociosNombres[0] || "");
@@ -891,7 +1028,7 @@ function FinanzasView({ col, settings, updateMontoCuota, updateValorGramo }) {
       <div className="erp-card" style={{ marginBottom: 20 }}>
         <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Configuración de cuota</p>
         <p style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>
-          El "Valor por gramo" es el que se usa para calcular el monto a cobrar en "Registrar pago" (Socios): gramos por cuota del socio × meses × valor del gramo. El "Monto de cuota" se usa como sugerencia al cargar una entrega manual en Dispensación.
+          El "Valor por gramo" es el que se usa para calcular el monto a cobrar en "Registrar pago" (Socios) y como sugerencia en Dispensación. El "Monto de cuota" queda disponible como referencia adicional.
         </p>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
           <Field label="Monto de cuota (ARS)">
@@ -1020,6 +1157,8 @@ export default function ERPCannabico() {
   const [menuOpen, setMenuOpen] = useState(false);
   const socios = useCollection("socios", authed);
   const cultivo = useCollection("cultivo", authed);
+  const madres = useCollection("madres", authed);
+  const clones = useCollection("clones", authed);
   const dispensacion = useCollection("dispensacion", authed);
   const finanzas = useCollection("finanzas", authed);
   const settingsHook = useSettings(authed);
@@ -1060,12 +1199,13 @@ export default function ERPCannabico() {
     { key: "dashboard", label: "Panel", num: "00" },
     { key: "socios", label: "Socios", num: "01" },
     { key: "cultivo", label: "Cultivo", num: "02" },
-    { key: "dispensacion", label: "Dispensación", num: "03" },
-    { key: "finanzas", label: "Finanzas", num: "04" },
-    { key: "reportes", label: "Reportes", num: "05" },
+    { key: "clones", label: "Clones", num: "03" },
+    { key: "dispensacion", label: "Dispensación", num: "04" },
+    { key: "finanzas", label: "Finanzas", num: "05" },
+    { key: "reportes", label: "Reportes", num: "06" },
   ];
 
-  const allLoaded = socios.loaded && cultivo.loaded && dispensacion.loaded && finanzas.loaded;
+  const allLoaded = socios.loaded && cultivo.loaded && madres.loaded && clones.loaded && dispensacion.loaded && finanzas.loaded;
 
   if (!entered) return <div className="erp-root"><GlobalStyle /><Landing onEnter={() => setEntered(true)} /></div>;
   if (!authLoaded) return <div className="erp-root"><GlobalStyle /></div>;
@@ -1103,6 +1243,7 @@ export default function ERPCannabico() {
             {visibleSection === "dashboard" && <Dashboard socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
             {visibleSection === "socios" && <SociosView col={socios} dispensacion={dispensacion} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
+            {visibleSection === "clones" && <ClonesView madres={madres} clones={clones} cultivo={cultivo} />}
             {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} updateValorGramo={settingsHook.updateValorGramo} />}
             {visibleSection === "reportes" && <ReportesView socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
