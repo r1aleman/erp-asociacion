@@ -674,6 +674,7 @@ const duracionTexto = (h) => {
 
 function CultivoView({ col, historial }) {
   const [showForm, setShowForm] = useState(false);
+  const [editingId, setEditingId] = useState(null);
   const [filtroEtapa, setFiltroEtapa] = useState("Todos");
   const ETAPAS = ["Germinación", "Vegetativo", "Floración", "Cosecha", "Secado"];
   const fields = [
@@ -685,6 +686,16 @@ function CultivoView({ col, historial }) {
     { name: "fechaCosechaEstimada", label: "Cosecha estimada", type: "date" },
     { name: "gramosCosechados", label: "Gramos cosechados", type: "number", default: 0 },
   ];
+  const fieldsEdit = [
+    { name: "lote", label: "Lote / identificación" },
+    { name: "variedad", label: "Variedad" },
+    { name: "fechaSiembra", label: "Fecha de siembra", type: "date" },
+    { name: "cantidadPlantas", label: "Cantidad de plantas", type: "number" },
+    { name: "fechaCosechaEstimada", label: "Cosecha estimada", type: "date" },
+    { name: "gramosCosechados", label: "Gramos cosechados", type: "number" },
+  ];
+
+  const editingLote = editingId ? col.items.find((c) => c.id === editingId) : null;
 
   const handleNuevoLote = async (v) => {
     const nuevo = await col.add(v);
@@ -719,8 +730,17 @@ function CultivoView({ col, historial }) {
 
   return (
     <>
-      <SectionHeader title="Cultivo" folio={`Libro II · ${col.items.length} lotes`} onAdd={() => setShowForm(true)} addLabel="+ Nuevo lote" />
-      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={handleNuevoLote} />}
+      <SectionHeader title="Cultivo" folio={`Libro II · ${col.items.length} lotes`} onAdd={() => { setEditingId(null); setShowForm(true); }} addLabel="+ Nuevo lote" />
+      {showForm && !editingLote && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={handleNuevoLote} />}
+      {editingLote && (
+        <AddForm
+          fields={fieldsEdit}
+          initialValues={editingLote}
+          submitLabel="Guardar cambios"
+          onCancel={() => setEditingId(null)}
+          onSubmit={(v) => { col.update(editingLote.id, v); setEditingId(null); }}
+        />
+      )}
 
       <div className="erp-card" style={{ marginBottom: 20 }}>
         <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -756,7 +776,10 @@ function CultivoView({ col, historial }) {
                   <td className="erp-mono">
                     <input className="erp-input" style={{ width: 80, padding: "4px 6px" }} type="number" defaultValue={c.gramosCosechados || 0} onBlur={(e) => col.update(c.id, { gramosCosechados: Number(e.target.value) })} />
                   </td>
-                  <td><button className="erp-btn erp-btn-danger" onClick={() => col.remove(c.id)}>Borrar</button></td>
+                  <td style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                    <button className="erp-btn" onClick={() => { setEditingId(c.id); setShowForm(false); }}>Editar</button>
+                    <button className="erp-btn erp-btn-danger" onClick={() => col.remove(c.id)}>Borrar</button>
+                  </td>
                 </tr>
               ))}
             </tbody>
