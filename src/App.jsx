@@ -791,6 +791,21 @@ function DispensacionView({ col, socios, finanzas, settings }) {
     setShowForm(false);
   };
 
+  const marcarPago = (d) => {
+    const nuevoEstado = !d.pagado;
+    col.update(d.id, { pagado: nuevoEstado });
+    if (nuevoEstado && Number(d.monto) > 0) {
+      finanzas.add({
+        fecha: TODAY(),
+        tipo: "Ingreso",
+        categoria: d.tipoCobro === "Excedente" ? "Excedente" : "Cuota",
+        concepto: d.socioNombre,
+        metodoPago: d.metodoPago,
+        monto: d.monto,
+      });
+    }
+  };
+
   return (
     <>
       <SectionHeader
@@ -832,7 +847,7 @@ function DispensacionView({ col, socios, finanzas, settings }) {
                   <td className="erp-mono">{fmtMoney(d.monto)}</td>
                   <td style={{ color: "var(--ink-soft)" }}>{d.metodoPago || "—"}</td>
                   <td>
-                    <button className={`erp-badge ${d.pagado ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => col.update(d.id, { pagado: !d.pagado })} style={{ border: "none", cursor: "pointer" }}>
+                    <button className={`erp-badge ${d.pagado ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => marcarPago(d)} style={{ border: "none", cursor: "pointer" }}>
                       {d.pagado ? "Pago" : "Impago"}
                     </button>
                   </td>
