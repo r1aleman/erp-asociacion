@@ -686,24 +686,99 @@ function CultivoView({ col }) {
   );
 }
 
+// Formulario de nueva entrega — calcula el monto solo a partir de los gramos y el valor por gramo
+function NuevaEntregaForm({ sociosNombres, valorGramo, onCancel, onSubmit }) {
+  const [socioNombre, setSocioNombre] = useState(sociosNombres[0] || "");
+  const [fecha, setFecha] = useState(TODAY());
+  const [tipo, setTipo] = useState("Flor");
+  const [cantidadGramos, setCantidadGramos] = useState(0);
+  const [tipoCobro, setTipoCobro] = useState("Cuota mensual");
+  const [valorGramoLocal, setValorGramoLocal] = useState(valorGramo || 0);
+  const [monto, setMonto] = useState(0);
+  const [montoEditado, setMontoEditado] = useState(false);
+  const [metodoPago, setMetodoPago] = useState("Efectivo");
+  const [pagado, setPagado] = useState(true);
+  const [observaciones, setObservaciones] = useState("");
+
+  const recalcular = (gramos, precio) => {
+    if (!montoEditado) setMonto(Math.round(gramos * (precio || 0)));
+  };
+  const handleGramos = (val) => {
+    setCantidadGramos(val);
+    recalcular(val, valorGramoLocal);
+  };
+  const handleValorGramo = (val) => {
+    setValorGramoLocal(val);
+    recalcular(cantidadGramos, val);
+  };
+
+  return (
+    <div className="erp-card" style={{ marginBottom: 20 }}>
+      <div className="erp-form-grid">
+        <Field label="Socio">
+          <select className="erp-select" value={socioNombre} onChange={(e) => setSocioNombre(e.target.value)}>
+            {(sociosNombres.length ? sociosNombres : ["Sin socios cargados"]).map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Fecha">
+          <input className="erp-input" type="date" value={fecha} onChange={(e) => setFecha(e.target.value)} />
+        </Field>
+        <Field label="Tipo de producto">
+          <select className="erp-select" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            {["Flor", "Aceite", "Extracto", "Semilla", "Otro"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Cantidad (g)">
+          <input className="erp-input" type="number" value={cantidadGramos} onChange={(e) => handleGramos(Number(e.target.value))} />
+        </Field>
+        <Field label="Concepto">
+          <select className="erp-select" value={tipoCobro} onChange={(e) => setTipoCobro(e.target.value)}>
+            {["Cuota mensual", "Excedente"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Valor por gramo — esta entrega (ARS)">
+          <input className="erp-input" type="number" value={valorGramoLocal} onChange={(e) => handleValorGramo(Number(e.target.value))} />
+        </Field>
+        <Field label={`Monto (ARS)${!montoEditado ? " · calculado" : ""}`}>
+          <input className="erp-input" type="number" value={monto} onChange={(e) => { setMontoEditado(true); setMonto(Number(e.target.value)); }} />
+        </Field>
+        <Field label="Método de pago">
+          <select className="erp-select" value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)}>
+            {["Efectivo", "Transferencia", "Tarjeta", "Cuenta corriente"].map((o) => <option key={o} value={o}>{o}</option>)}
+          </select>
+        </Field>
+        <Field label="Pagado">
+          <input type="checkbox" checked={pagado} onChange={(e) => setPagado(e.target.checked)} style={{ width: 18, height: 18, marginTop: 6 }} />
+        </Field>
+        <Field label="Observaciones">
+          <input className="erp-input" value={observaciones} onChange={(e) => setObservaciones(e.target.value)} />
+        </Field>
+      </div>
+      <p style={{ fontSize: 12, color: "var(--ink-soft)", marginTop: 10 }}>
+        {!montoEditado
+          ? `El monto se calculó solo: ${fmtG(cantidadGramos)} × ${fmtMoney(valorGramoLocal)}/g. Si es una venta especial, cambiá el "Valor por gramo — esta entrega" y el monto se recalcula sin tocar tu configuración general.`
+          : "Editaste el monto manualmente — ya no se recalcula solo al cambiar gramos o valor por gramo."}
+      </p>
+      <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+        <button className="erp-btn erp-btn-primary" onClick={() => onSubmit({ socioNombre, fecha, tipo, cantidadGramos, tipoCobro, monto, metodoPago, pagado, observaciones })}>Guardar registro</button>
+        <button className="erp-btn" onClick={onCancel}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function DispensacionView({ col, socios, finanzas, settings }) {
   const [showForm, setShowForm] = useState(false);
-  const fields = [
-    { name: "socioNombre", label: "Socio", type: "select", options: socios.items.length ? socios.items.map((s) => s.nombre) : ["Sin socios cargados"] },
-    { name: "fecha", label: "Fecha", type: "date", default: TODAY() },
-    { name: "tipo", label: "Tipo de producto", type: "select", options: ["Flor", "Aceite", "Extracto", "Semilla", "Otro"] },
-    { name: "cantidadGramos", label: "Cantidad (g)", type: "number", default: 0 },
-    { name: "tipoCobro", label: "Concepto", type: "select", options: ["Cuota mensual", "Excedente"], default: "Cuota mensual" },
-    { name: "monto", label: "Monto (ARS)", type: "number", default: settings.montoCuota || 0 },
-    { name: "metodoPago", label: "Método de pago", type: "select", options: ["Efectivo", "Transferencia", "Tarjeta"], default: "Efectivo" },
-    { name: "pagado", label: "Pagado", type: "checkbox", default: true },
-    { name: "observaciones", label: "Observaciones" },
-  ];
+  const [filtro, setFiltro] = useState("todos");
+
   const totalPendiente = col.items.filter((d) => !d.pagado).reduce((a, d) => a + (Number(d.monto) || 0), 0);
+  const filtrados = filtro === "deudores"
+    ? col.items.filter((d) => d.metodoPago === "Cuenta corriente" && !d.pagado)
+    : col.items;
 
   const handleSubmit = (v) => {
     col.add(v);
-    if (Number(v.monto) > 0) {
+    if (v.pagado && Number(v.monto) > 0) {
       finanzas.add({
         fecha: v.fecha,
         tipo: "Ingreso",
@@ -724,14 +799,29 @@ function DispensacionView({ col, socios, finanzas, settings }) {
         onAdd={() => setShowForm(true)}
         addLabel="+ Nueva entrega"
       />
-      {showForm && <AddForm fields={fields} onCancel={() => setShowForm(false)} onSubmit={handleSubmit} />}
+      {showForm && (
+        <NuevaEntregaForm
+          sociosNombres={socios.items.map((s) => s.nombre)}
+          valorGramo={settings.valorGramo}
+          onCancel={() => setShowForm(false)}
+          onSubmit={handleSubmit}
+        />
+      )}
+      <div className="erp-card" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button className={filtro === "deudores" ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltro("deudores")}>Ver deudores (cta. cte.)</button>
+          <button className={filtro === "todos" ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltro("todos")}>Ver listado completo</button>
+        </div>
+      </div>
       <div className="erp-card">
-        {col.items.length === 0 ? <p className="erp-empty">Todavía no hay entregas registradas.</p> : (
+        {filtrados.length === 0 ? (
+          <p className="erp-empty">{col.items.length === 0 ? "Todavía no hay entregas registradas." : "No hay entregas que coincidan con el filtro."}</p>
+        ) : (
           <div className="erp-table-wrap">
           <table className="erp-table">
-            <thead><tr><th>N°</th><th>Fecha</th><th>Socio</th><th>Tipo</th><th>Cantidad</th><th>Concepto</th><th>Monto</th><th>Cobro</th><th>Obs.</th><th></th></tr></thead>
+            <thead><tr><th>N°</th><th>Fecha</th><th>Socio</th><th>Tipo</th><th>Cantidad</th><th>Concepto</th><th>Monto</th><th>Método</th><th>Cobro</th><th>Obs.</th><th></th></tr></thead>
             <tbody>
-              {col.items.map((d, i) => (
+              {filtrados.map((d, i) => (
                 <tr key={d.id}>
                   <td className="erp-mono">{pad(i + 1)}</td>
                   <td>{fmtDate(d.fecha)}</td>
@@ -740,6 +830,7 @@ function DispensacionView({ col, socios, finanzas, settings }) {
                   <td className="erp-mono">{fmtG(d.cantidadGramos)}</td>
                   <td><span className={`erp-badge ${d.tipoCobro === "Excedente" ? "erp-badge-soil" : "erp-badge-slate"}`}>{d.tipoCobro || "Cuota mensual"}</span></td>
                   <td className="erp-mono">{fmtMoney(d.monto)}</td>
+                  <td style={{ color: "var(--ink-soft)" }}>{d.metodoPago || "—"}</td>
                   <td>
                     <button className={`erp-badge ${d.pagado ? "erp-badge-moss" : "erp-badge-rust"}`} onClick={() => col.update(d.id, { pagado: !d.pagado })} style={{ border: "none", cursor: "pointer" }}>
                       {d.pagado ? "Pago" : "Impago"}
