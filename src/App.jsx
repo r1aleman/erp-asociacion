@@ -2,8 +2,7 @@
 // src/App.jsx — versión Supabase con login compartido
 // =====================================================
 // 1. Completá SUPABASE_URL y SUPABASE_ANON_KEY con tus datos.
-// 2. Completá AUTH_EMAIL con el mismo email que uses para crear
-//    el usuario compartido en Supabase (paso a paso aparte).
+// 2. Completá AUTH_EMAIL con el mismo email del usuario compartido.
 // 3. npm install @supabase/supabase-js
 // =====================================================
 
@@ -12,7 +11,7 @@ import { createClient } from "@supabase/supabase-js";
 
 const SUPABASE_URL = "https://iochhkqjchsplbgwzvlw.supabase.co";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlvY2hoa3FqY2hzcGxiZ3d6dmx3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY0MDE4MzUsImV4cCI6MjEwMTk3NzgzNX0.TQQSN53_05CtRUcyGG6eE1cE3A-unxlTIhI-vlhP30A";
-const AUTH_EMAIL = "zuluclub.inc@gmail.com"; // <-- completar con el email del usuario compartido
+const AUTH_EMAIL = "zuluclub.inc@gmail.com";
 const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 // Mapea nombres de campos del formulario (camelCase) <-> columnas de la tabla (snake_case)
@@ -20,8 +19,7 @@ const FIELD_MAPS = {
   socios: {
     nombre: "nombre", dni: "dni", reprocannNumero: "reprocann_numero",
     reprocannVencimiento: "reprocann_vencimiento", fechaAlta: "fecha_alta",
-    telefono: "telefono", cuotaAlDia: "cuota_al_dia", estado: "estado",
-    gramosCuota: "gramos_cuota",
+    telefono: "telefono", estado: "estado", gramosCuota: "gramos_cuota",
   },
   cultivo: {
     lote: "lote", fechaSiembra: "fecha_siembra", cantidadPlantas: "cantidad_plantas",
@@ -159,10 +157,7 @@ const GlobalStyle = () => (
     .erp-error { color: var(--rust); font-size: 12px; margin-top: 8px; }
     .erp-landing { min-height: 100vh; width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; background: var(--moss-dark); padding: 24px; text-align: center; }
     .erp-landing img { max-width: 260px; width: 80%; height: auto; margin-bottom: 28px; filter: drop-shadow(0 8px 24px rgba(0,0,0,0.4)); }
-    .erp-landing-btn {
-      font-family: 'IBM Plex Sans', sans-serif; font-size: 15px; font-weight: 600; padding: 14px 40px;
-      border-radius: 4px; border: none; background: var(--moss-light); color: var(--moss-dark); cursor: pointer;
-    }
+    .erp-landing-btn { font-family: 'IBM Plex Sans', sans-serif; font-size: 15px; font-weight: 600; padding: 14px 40px; border-radius: 4px; border: none; background: var(--moss-light); color: var(--moss-dark); cursor: pointer; }
     .erp-landing-btn:hover { background: #fff; }
     .erp-menu-toggle { display: none; }
     .erp-overlay { display: none; }
@@ -224,6 +219,32 @@ function useCollection(table, ready) {
   };
 
   return { items, loaded, add, update, remove };
+}
+
+// Configuración global: monto de cuota y valor por gramo, iguales para todos los socios
+function useSettings(ready) {
+  const [settings, setSettings] = useState({ montoCuota: 0, valorGramo: 0 });
+  const [loaded, setLoaded] = useState(false);
+
+  const reload = async () => {
+    const { data, error } = await supabase.from("configuracion").select("*").eq("id", 1).maybeSingle();
+    if (!error && data) setSettings({ montoCuota: data.monto_cuota || 0, valorGramo: data.valor_gramo || 0 });
+    setLoaded(true);
+  };
+
+  useEffect(() => { if (ready) reload(); }, [ready]);
+
+  const updateMontoCuota = async (value) => {
+    const { error } = await supabase.from("configuracion").upsert({ id: 1, monto_cuota: value });
+    if (!error) setSettings((s) => ({ ...s, montoCuota: value }));
+  };
+
+  const updateValorGramo = async (value) => {
+    const { error } = await supabase.from("configuracion").upsert({ id: 1, valor_gramo: value });
+    if (!error) setSettings((s) => ({ ...s, valorGramo: value }));
+  };
+
+  return { settings, loaded, updateMontoCuota, updateValorGramo };
 }
 
 function Field({ label, children }) {
@@ -411,34 +432,13 @@ function Dashboard({ socios, cultivo, dispensacion, finanzas }) {
   );
 }
 
-// Configuración global (monto de cuota vigente, igual para todos los socios)
-function useSettings(ready) {
-  const [settings, setSettings] = useState({ montoCuota: 0 });
-  const [loaded, setLoaded] = useState(false);
-
-  const reload = async () => {
-    const { data, error } = await supabase.from("configuracion").select("*").eq("id", 1).maybeSingle();
-    if (!error && data) setSettings({ montoCuota: data.monto_cuota || 0 });
-    setLoaded(true);
-  };
-
-  useEffect(() => { if (ready) reload(); }, [ready]);
-
-  const updateMontoCuota = async (value) => {
-    const { error } = await supabase.from("configuracion").upsert({ id: 1, monto_cuota: value });
-    if (!error) setSettings({ montoCuota: value });
-  };
-
-  return { settings, loaded, updateMontoCuota };
-}
-
-// Formulario para registrar el pago de una o varias cuotas
-function PagoCuotaForm({ socio, montoCuota, onCancel, onSubmit }) {
+// Formulario para registrar el pago de una o varias cuotas — se calcula por gramos × valor del gramo
+function PagoCuotaForm({ socio, valorGramo, onCancel, onSubmit }) {
   const [meses, setMeses] = useState(1);
   const [metodoPago, setMetodoPago] = useState("Efectivo");
   const [fecha, setFecha] = useState(TODAY());
-  const monto = meses * (montoCuota || 0);
   const gramos = meses * (socio.gramosCuota || 0);
+  const monto = gramos * (valorGramo || 0);
 
   return (
     <div className="erp-card" style={{ marginBottom: 20 }}>
@@ -457,7 +457,9 @@ function PagoCuotaForm({ socio, montoCuota, onCancel, onSubmit }) {
         </Field>
       </div>
       <p style={{ fontSize: 13, color: "var(--ink-soft)", marginTop: 12 }}>
-        Total a registrar: <strong>{fmtMoney(monto)}</strong> · Gramos a descontar del stock: <strong>{fmtG(gramos)}</strong>
+        Gramos por cuota del socio: <strong>{fmtG(socio.gramosCuota)}</strong> × {meses} mes{meses === 1 ? "" : "es"} = <strong>{fmtG(gramos)}</strong> a descontar del stock.
+        <br />
+        Total a cobrar (a {fmtMoney(valorGramo)}/g): <strong>{fmtMoney(monto)}</strong>
       </p>
       <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
         <button className="erp-btn erp-btn-primary" onClick={() => onSubmit({ meses, metodoPago, fecha, monto, gramos })}>Confirmar pago</button>
@@ -471,6 +473,8 @@ function SociosView({ col, dispensacion, finanzas, settings }) {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [pagoSocioId, setPagoSocioId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [filtro, setFiltro] = useState("todos");
   const DIAS_VENCIMIENTO_SOCIOS = 60;
   const fields = [
     { name: "nombre", label: "Nombre completo" },
@@ -490,6 +494,18 @@ function SociosView({ col, dispensacion, finanzas, settings }) {
       .filter((s) => s.dias !== null && s.dias <= DIAS_VENCIMIENTO_SOCIOS)
       .sort((a, b) => a.dias - b.dias);
   }, [col.items]);
+
+  const filtrados = useMemo(() => {
+    let items = col.items;
+    if (filtro === "atrasados") {
+      items = items.filter((s) => mesesAdeudados(s, dispensacion.items) > 0);
+    }
+    if (search.trim()) {
+      const q = search.trim().toLowerCase();
+      items = items.filter((s) => (s.nombre || "").toLowerCase().includes(q) || (s.dni || "").toLowerCase().includes(q));
+    }
+    return items;
+  }, [col.items, dispensacion.items, filtro, search]);
 
   const editingSocio = editingId ? col.items.find((s) => s.id === editingId) : null;
   const pagoSocio = pagoSocioId ? col.items.find((s) => s.id === pagoSocioId) : null;
@@ -564,19 +580,33 @@ function SociosView({ col, dispensacion, finanzas, settings }) {
       {pagoSocio && (
         <PagoCuotaForm
           socio={pagoSocio}
-          montoCuota={settings.montoCuota}
+          valorGramo={settings.valorGramo}
           onCancel={() => setPagoSocioId(null)}
           onSubmit={registrarPago}
         />
       )}
 
+      <div className="erp-card" style={{ marginBottom: 20 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+          <div style={{ flex: 1, minWidth: 200 }}>
+            <Field label="Buscar socio (nombre o DNI)">
+              <input className="erp-input" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Escribí para buscar…" />
+            </Field>
+          </div>
+          <button className={filtro === "atrasados" ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltro("atrasados")}>Ver atrasados</button>
+          <button className={filtro === "todos" ? "erp-btn erp-btn-primary" : "erp-btn"} onClick={() => setFiltro("todos")}>Ver todos</button>
+        </div>
+      </div>
+
       <div className="erp-card">
-        {col.items.length === 0 ? <p className="erp-empty">Todavía no hay socios cargados.</p> : (
+        {filtrados.length === 0 ? (
+          <p className="erp-empty">{col.items.length === 0 ? "Todavía no hay socios cargados." : "No hay socios que coincidan con la búsqueda/filtro."}</p>
+        ) : (
           <div className="erp-table-wrap">
           <table className="erp-table">
             <thead><tr><th>N°</th><th>Nombre</th><th>DNI</th><th>REPROCANN</th><th>Vence</th><th>Grs. cuota</th><th>Cuotas</th><th>Estado</th><th></th></tr></thead>
             <tbody>
-              {col.items.map((s, i) => {
+              {filtrados.map((s, i) => {
                 const deuda = mesesAdeudados(s, dispensacion.items);
                 return (
                 <tr key={s.id}>
@@ -728,9 +758,10 @@ function DispensacionView({ col, socios, finanzas, settings }) {
   );
 }
 
-function FinanzasView({ col, settings, updateMontoCuota }) {
+function FinanzasView({ col, settings, updateMontoCuota, updateValorGramo }) {
   const [showForm, setShowForm] = useState(false);
   const [cuotaInput, setCuotaInput] = useState(settings.montoCuota || 0);
+  const [valorGramoInput, setValorGramoInput] = useState(settings.valorGramo || 0);
   const [savedMsg, setSavedMsg] = useState(false);
   const fields = [
     { name: "fecha", label: "Fecha", type: "date", default: TODAY() },
@@ -741,8 +772,9 @@ function FinanzasView({ col, settings, updateMontoCuota }) {
   ];
   const balance = col.items.reduce((a, f) => a + (f.tipo === "Ingreso" ? Number(f.monto) || 0 : -(Number(f.monto) || 0)), 0);
 
-  const saveCuota = async () => {
+  const saveConfig = async () => {
     await updateMontoCuota(Number(cuotaInput));
+    await updateValorGramo(Number(valorGramoInput));
     setSavedMsg(true);
     setTimeout(() => setSavedMsg(false), 2000);
   };
@@ -751,15 +783,18 @@ function FinanzasView({ col, settings, updateMontoCuota }) {
     <>
       <SectionHeader title="Finanzas" folio={`Libro IV · Balance ${fmtMoney(balance)}`} onAdd={() => setShowForm(true)} addLabel="+ Nuevo movimiento" />
       <div className="erp-card" style={{ marginBottom: 20 }}>
-        <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Cuota mensual vigente</p>
+        <p className="erp-serif" style={{ fontSize: 15, marginBottom: 10 }}>Configuración de cuota</p>
         <p style={{ fontSize: 12, color: "var(--ink-soft)", marginBottom: 10 }}>
-          Este es el monto que se sugiere automáticamente al cargar una entrega por "Cuota mensual" en Dispensación.
+          El "Valor por gramo" es el que se usa para calcular el monto a cobrar en "Registrar pago" (Socios): gramos por cuota del socio × meses × valor del gramo. El "Monto de cuota" se usa como sugerencia al cargar una entrega manual en Dispensación.
         </p>
         <div style={{ display: "flex", gap: 8, alignItems: "flex-end", flexWrap: "wrap" }}>
-          <Field label="Monto (ARS)">
+          <Field label="Monto de cuota (ARS)">
             <input className="erp-input" style={{ width: 160 }} type="number" value={cuotaInput} onChange={(e) => setCuotaInput(Number(e.target.value))} />
           </Field>
-          <button className="erp-btn erp-btn-primary" onClick={saveCuota}>Guardar</button>
+          <Field label="Valor por gramo (ARS)">
+            <input className="erp-input" style={{ width: 160 }} type="number" value={valorGramoInput} onChange={(e) => setValorGramoInput(Number(e.target.value))} />
+          </Field>
+          <button className="erp-btn erp-btn-primary" onClick={saveConfig}>Guardar</button>
           {savedMsg && <span style={{ fontSize: 12, color: "var(--moss-dark)" }}>Guardado ✓</span>}
         </div>
       </div>
@@ -794,8 +829,8 @@ function FinanzasView({ col, settings, updateMontoCuota }) {
 const REPORTES = {
   padron: { label: "Padrón de socios", cols: [{ key: "nombre", label: "Nombre" }, { key: "dni", label: "DNI" }, { key: "reprocannNumero", label: "N° REPROCANN" }, { key: "reprocannVencimiento", label: "Vto. REPROCANN", date: true }, { key: "fechaAlta", label: "Fecha de alta", date: true }, { key: "estado", label: "Estado" }], dateField: "fechaAlta" },
   cultivo: { label: "Registro de cultivo", cols: [{ key: "lote", label: "Lote" }, { key: "fechaSiembra", label: "Siembra", date: true }, { key: "cantidadPlantas", label: "Plantas" }, { key: "etapa", label: "Etapa" }, { key: "gramosCosechados", label: "Gramos cosechados" }], dateField: "fechaSiembra" },
-  dispensacion: { label: "Registro de dispensación", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "socioNombre", label: "Socio" }, { key: "tipo", label: "Tipo" }, { key: "cantidadGramos", label: "Gramos" }, { key: "tipoCobro", label: "Concepto" }, { key: "monto", label: "Monto" }, { key: "pagado", label: "Pagado" }, { key: "observaciones", label: "Observaciones" }], dateField: "fecha" },
-  finanzas: { label: "Balance financiero", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "tipo", label: "Tipo" }, { key: "categoria", label: "Categoría" }, { key: "concepto", label: "Concepto" }, { key: "monto", label: "Monto" }], dateField: "fecha" },
+  dispensacion: { label: "Registro de dispensación", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "socioNombre", label: "Socio" }, { key: "tipo", label: "Tipo" }, { key: "cantidadGramos", label: "Gramos" }, { key: "tipoCobro", label: "Concepto" }, { key: "monto", label: "Monto" }, { key: "metodoPago", label: "Método" }, { key: "pagado", label: "Pagado" }, { key: "observaciones", label: "Observaciones" }], dateField: "fecha" },
+  finanzas: { label: "Balance financiero", cols: [{ key: "fecha", label: "Fecha", date: true }, { key: "tipo", label: "Tipo" }, { key: "categoria", label: "Categoría" }, { key: "concepto", label: "Concepto" }, { key: "metodoPago", label: "Método" }, { key: "monto", label: "Monto" }], dateField: "fecha" },
 };
 
 function toCSV(cols, rows) {
@@ -963,7 +998,7 @@ export default function ERPCannabico() {
             {visibleSection === "socios" && <SociosView col={socios} dispensacion={dispensacion} finanzas={finanzas} settings={settingsHook.settings} />}
             {visibleSection === "cultivo" && <CultivoView col={cultivo} />}
             {visibleSection === "dispensacion" && <DispensacionView col={dispensacion} socios={socios} finanzas={finanzas} settings={settingsHook.settings} />}
-            {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} />}
+            {visibleSection === "finanzas" && <FinanzasView col={finanzas} settings={settingsHook.settings} updateMontoCuota={settingsHook.updateMontoCuota} updateValorGramo={settingsHook.updateValorGramo} />}
             {visibleSection === "reportes" && <ReportesView socios={socios} cultivo={cultivo} dispensacion={dispensacion} finanzas={finanzas} />}
           </>
         )}
